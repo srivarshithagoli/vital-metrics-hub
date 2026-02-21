@@ -65,6 +65,7 @@
     --landing-foreground: 210 15% 90%;
     --landing-muted: 215 20% 25%;
     --landing-accent: 187 55% 50%;
+    --landing-button-text: 215 25% 15%;
   }
 
   .dark {
@@ -127,6 +128,7 @@
     --landing-foreground: 210 15% 88%;
     --landing-muted: 220 16% 18%;
     --landing-accent: 187 50% 48%;
+    --landing-button-text: 210 15% 90%;
   }
 }
 

@@ -89,7 +89,7 @@ const Index = () => {
           <Button
             size="lg"
             variant="outline"
-            className="border-landing-muted text-landing-foreground hover:bg-landing-muted"
+            className="border-landing-muted text-landing-button-text hover:bg-landing-muted"
           >
             Learn More
           </Button>

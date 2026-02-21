@@ -70,6 +70,7 @@ export default {
           foreground: "hsl(var(--landing-foreground))",
           muted: "hsl(var(--landing-muted))",
           accent: "hsl(var(--landing-accent))",
+          "button-text": "hsl(var(--landing-button-text))",
         },
         kpi: {
           patients: "hsl(var(--kpi-patients))",
