@@ -285,6 +285,44 @@ export function parseStaffFromExcel(file: File): Promise<Omit<Staff, "id" | "cre
   });
 }
 
+// Parse resources from Excel file
+export function parseResourcesFromExcel(file: File): Promise<Omit<Resource, "id" | "updatedAt">[]> {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = (e) => {
+      try {
+        const data = new Uint8Array(e.target?.result as ArrayBuffer);
+        const workbook = XLSX.read(data, { type: "array" });
+        const sheetName = workbook.SheetNames[0];
+        const worksheet = workbook.Sheets[sheetName];
+        const jsonData = XLSX.utils.sheet_to_json(worksheet);
+
+        const resources = jsonData.map((row: unknown) => {
+          const r = row as Record<string, unknown>;
+          const total = Number(r["Total"] || r["total"] || 0);
+          const used = Number(r["Used"] || r["used"] || 0);
+
+          return {
+            name: String(r["Resource"] || r["Name"] || r["resource"] || r["name"] || ""),
+            used,
+            total,
+            unit: String(r["Unit"] || r["unit"] || "units"),
+          };
+        }).filter((resource) => resource.name && Number.isFinite(resource.total) && resource.total > 0 && Number.isFinite(resource.used) && resource.used >= 0);
+
+        resolve(resources.map((resource) => ({
+          ...resource,
+          used: Math.min(resource.used, resource.total),
+        })));
+      } catch (error) {
+        reject(new Error("Failed to parse Excel file. Please check the format."));
+      }
+    };
+    reader.onerror = () => reject(new Error("Failed to read file"));
+    reader.readAsArrayBuffer(file);
+  });
+}
+
 // Generate Excel template for patients
 export function downloadPatientTemplate() {
   const template = [
@@ -381,4 +419,39 @@ export function downloadRecordTemplate() {
   const excelBuffer = XLSX.write(wb, { bookType: "xlsx", type: "array" });
   const blob = new Blob([excelBuffer], { type: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" });
   saveAs(blob, "record_template.xlsx");
+}
+
+// Generate Excel template for resources
+export function downloadResourceTemplate() {
+  const template = [
+    {
+      "Resource": "Beds",
+      "Used": 78,
+      "Total": 100,
+      "Unit": "beds",
+    },
+    {
+      "Resource": "Oxygen Cylinders",
+      "Used": 42,
+      "Total": 60,
+      "Unit": "cylinders",
+    },
+  ];
+
+  const ws = XLSX.utils.json_to_sheet(template);
+  const wb = XLSX.utils.book_new();
+  XLSX.utils.book_append_sheet(wb, ws, "Resources");
+
+  const instructions = [
+    { "Field": "Resource", "Description": "Resource name exactly as used in the hospital", "Required": "Yes", "Example": "Beds" },
+    { "Field": "Used", "Description": "Currently occupied or in-use quantity", "Required": "Yes", "Example": "78" },
+    { "Field": "Total", "Description": "Total available resource capacity", "Required": "Yes", "Example": "100" },
+    { "Field": "Unit", "Description": "Measurement unit", "Required": "No", "Example": "beds" },
+  ];
+  const wsInstructions = XLSX.utils.json_to_sheet(instructions);
+  XLSX.utils.book_append_sheet(wb, wsInstructions, "Instructions");
+
+  const excelBuffer = XLSX.write(wb, { bookType: "xlsx", type: "array" });
+  const blob = new Blob([excelBuffer], { type: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" });
+  saveAs(blob, "resource_template.xlsx");
 }

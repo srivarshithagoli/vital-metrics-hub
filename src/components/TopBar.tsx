@@ -1,4 +1,5 @@
 import { Search, Bell, Sun, Moon, User, ChevronDown } from "lucide-react";
+import { useNavigate } from "react-router-dom";
 import { useTheme } from "./ThemeProvider";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -9,9 +10,25 @@ import {
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import { SidebarTrigger } from "@/components/ui/sidebar";
+import { useAuth } from "@/hooks/use-auth";
+import { toast } from "sonner";
 
 export function TopBar() {
   const { theme, toggleTheme } = useTheme();
+  const { user, logOut } = useAuth();
+  const navigate = useNavigate();
+
+  const displayName = user?.displayName || user?.email || "Admin";
+
+  const handleLogOut = async () => {
+    try {
+      await logOut();
+      toast.success("Signed out successfully.");
+      navigate("/auth", { replace: true });
+    } catch {
+      toast.error("Unable to sign out right now. Please try again.");
+    }
+  };
 
   return (
     <header className="h-14 border-b border-border bg-card flex items-center justify-between px-4 gap-4 shrink-0">
@@ -48,14 +65,14 @@ export function TopBar() {
               <div className="h-7 w-7 rounded-full bg-primary/10 flex items-center justify-center">
                 <User className="h-4 w-4 text-primary" />
               </div>
-              <span className="text-sm hidden sm:inline">Dr. Admin</span>
+              <span className="text-sm hidden sm:inline">{displayName}</span>
               <ChevronDown className="h-3 w-3 text-muted-foreground" />
             </Button>
           </DropdownMenuTrigger>
           <DropdownMenuContent align="end">
             <DropdownMenuItem>Profile</DropdownMenuItem>
-            <DropdownMenuItem>Account Settings</DropdownMenuItem>
-            <DropdownMenuItem>Log Out</DropdownMenuItem>
+            <DropdownMenuItem onClick={() => navigate("/settings")}>Account Settings</DropdownMenuItem>
+            <DropdownMenuItem onClick={handleLogOut}>Log Out</DropdownMenuItem>
           </DropdownMenuContent>
         </DropdownMenu>
       </div>

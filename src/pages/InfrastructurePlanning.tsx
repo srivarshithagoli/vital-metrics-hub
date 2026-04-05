@@ -6,6 +6,7 @@ import {
 } from "recharts";
 import { useFirebase } from "@/contexts/FirebaseContext";
 import { exportResourcesToExcel } from "@/lib/excelUtils";
+import { calculateForecastMetrics, getResourceByName, getUtilization } from "@/lib/hospitalInsights";
 import { toast } from "sonner";
 
 const statusStyle: Record<string, string> = {
@@ -15,75 +16,108 @@ const statusStyle: Record<string, string> = {
   Active: "bg-success/10 text-success",
 };
 
+type PlanStatus = keyof typeof statusStyle;
+
 export default function InfrastructurePlanning() {
   const { patients, resources, staff, loading } = useFirebase();
+  const metrics = calculateForecastMetrics(patients, resources, staff);
 
-  // Calculate department capacity from real data
-  const departments = [
-    { name: "ER", current: 20 },
-    { name: "ICU", current: 20 },
-    { name: "General", current: 60 },
-    { name: "Pediatric", current: 15 },
-    { name: "Maternity", current: 12 },
-  ];
+  const beds = getResourceByName(resources, ["beds"]);
+  const icu = getResourceByName(resources, ["icu"]);
+  const oxygen = getResourceByName(resources, ["oâ‚‚ cylinders", "oÃ¢â€šâ€š cylinders", "oxygen cylinders"]);
+  const ventilators = getResourceByName(resources, ["ventilators"]);
 
-  // Calculate needed capacity based on patient load
-  const expansionData = departments.map(dept => {
-    const deptPatients = patients.filter(p => {
-      if (dept.name === "ICU") return p.status === "ICU";
-      if (dept.name === "ER") return p.status === "Admitted" || p.status === "Under Treatment";
-      return true;
-    }).length;
-    
-    // Calculate needed beds based on patient load (roughly 1.3x current patients)
-    const needed = Math.max(dept.current, Math.round(deptPatients * 1.3));
-    
+  const expansionData = resources.map((resource) => {
+    const normalizedName = String(resource.name || "").toLowerCase();
+    let needed = resource.used;
+
+    if (normalizedName === "beds") {
+      needed = Math.max(resource.used, metrics.projectedBedDemand);
+    } else if (normalizedName === "icu") {
+      needed = Math.max(resource.used, metrics.projectedIcuDemand);
+    } else if (["oâ‚‚ cylinders", "oÃ¢â€šâ€š cylinders", "oxygen cylinders"].includes(normalizedName)) {
+      needed = Math.max(resource.used, metrics.projectedOxygenDemand);
+    } else {
+      needed = resource.used;
+    }
+
     return {
-      department: dept.name,
-      current: dept.current,
-      needed: needed,
+      resource: resource.name,
+      current: resource.total,
+      needed: Math.min(Math.max(needed, resource.used), resource.total),
+      inUse: resource.used,
     };
   });
 
-  // Calculate infrastructure plans based on current data
-  const bedResource = resources.find(r => r.name === "Beds");
-  const icuResource = resources.find(r => r.name === "ICU");
-  const ventilatorResource = resources.find(r => r.name === "Ventilators");
+  const getGap = (resourceName: string, projected: number) => {
+    const resource = resources.find((item) => item.name.toLowerCase() === resourceName.toLowerCase());
+    if (!resource) return null;
+    return Math.max(projected - resource.total, 0);
+  };
 
-  const bedUtilization = bedResource ? Math.round((bedResource.used / bedResource.total) * 100) : 78;
-  const icuUtilization = icuResource ? Math.round((icuResource.used / icuResource.total) * 100) : 90;
-  const ventilatorUtilization = ventilatorResource ? Math.round((ventilatorResource.used / ventilatorResource.total) * 100) : 48;
+  const bedGap = beds ? Math.max(metrics.projectedBedDemand - beds.total, 0) : null;
+  const icuGap = icu ? Math.max(metrics.projectedIcuDemand - icu.total, 0) : null;
+  const oxygenGap = oxygen ? Math.max(metrics.projectedOxygenDemand - oxygen.total, 0) : null;
+  const ventilatorUtilization = getUtilization(ventilators);
+  const clinicalStaff = metrics.doctors + metrics.nurses;
+  const staffingRatio = clinicalStaff > 0 ? Math.round((metrics.activePatients / clinicalStaff) * 10) / 10 : null;
 
-  const plans = [
-    { 
-      icon: BedDouble, 
-      title: "Ward Expansion", 
-      status: bedUtilization > 80 ? "Planning" : "Active", 
-      detail: bedUtilization > 80 
-        ? `Add ${Math.round((bedUtilization - 70) / 100 * (bedResource?.total || 100))} beds to General Ward - High utilization detected`
-        : "Current bed capacity is adequate for projected demand"
+  const plans: Array<{
+    icon: typeof BedDouble;
+    title: string;
+    status: PlanStatus;
+    detail: string;
+  }> = [
+    {
+      icon: BedDouble,
+      title: "Ward Capacity",
+      status: beds ? (bedGap && bedGap > 0 ? "Planning" : getUtilization(beds) >= 85 ? "In Progress" : "Active") : "Proposed",
+      detail: beds
+        ? bedGap && bedGap > 0
+          ? `Projected bed demand exceeds current capacity by ${bedGap} beds. Increase ward capacity or reduce occupancy pressure.`
+          : `Beds are currently ${getUtilization(beds)}% utilized with ${beds.used} of ${beds.total} in use.`
+        : "Add bed inventory data to start live ward-capacity planning.",
     },
-    { 
-      icon: Wrench, 
-      title: "Equipment Upgrade", 
-      status: ventilatorUtilization > 70 ? "In Progress" : "Active", 
-      detail: ventilatorUtilization > 70
-        ? `Ventilator fleet upgrade needed - ${ventilatorUtilization}% utilization`
-        : `Ventilator fleet operational - ${ventilatorResource?.used || 12}/${ventilatorResource?.total || 25} in use`
+    {
+      icon: Building2,
+      title: "ICU Capacity",
+      status: icu ? (icuGap && icuGap > 0 ? "Planning" : getUtilization(icu) >= 85 ? "In Progress" : "Active") : "Proposed",
+      detail: icu
+        ? icuGap && icuGap > 0
+          ? `Projected ICU demand exceeds current capacity by ${icuGap} beds. Prepare overflow or expansion planning.`
+          : `ICU is currently ${getUtilization(icu)}% utilized with ${icu.used} of ${icu.total} beds in use.`
+        : "Add ICU resource data to generate real infrastructure recommendations.",
     },
-    { 
-      icon: Building2, 
-      title: "New ICU Wing", 
-      status: icuUtilization > 85 ? "Planning" : "Proposed", 
-      detail: icuUtilization > 85
-        ? `${Math.round((icuUtilization - 80) / 100 * (icuResource?.total || 20))}-bed ICU extension recommended - Critical utilization`
-        : "5-bed ICU extension pending board approval"
+    {
+      icon: Wrench,
+      title: "Critical Equipment",
+      status: ventilators
+        ? ventilatorUtilization >= 80
+          ? "In Progress"
+          : "Active"
+        : oxygen
+          ? oxygenGap && oxygenGap > 0
+            ? "Planning"
+            : getUtilization(oxygen) >= 80
+              ? "In Progress"
+              : "Active"
+          : "Proposed",
+      detail: ventilators
+        ? `Ventilators are ${ventilatorUtilization}% utilized with ${ventilators.used} of ${ventilators.total} currently in use.`
+        : oxygen
+          ? oxygenGap && oxygenGap > 0
+            ? `Projected oxygen demand exceeds current supply by ${oxygenGap} cylinders. Procurement should be planned.`
+            : `Oxygen cylinders are ${getUtilization(oxygen)}% utilized with ${oxygen.used} of ${oxygen.total} in use.`
+          : "Add oxygen or ventilator inventory to monitor equipment strain.",
     },
-    { 
-      icon: TrendingUp, 
-      title: "Digital Infrastructure", 
-      status: "Active", 
-      detail: "EHR system modernization and IoT sensor deployment" 
+    {
+      icon: TrendingUp,
+      title: "Operational Readiness",
+      status: staffingRatio === null ? "Proposed" : staffingRatio > 3.5 ? "Planning" : "Active",
+      detail:
+        staffingRatio === null
+          ? "Add doctor and nurse staffing data to generate live readiness planning."
+          : `Current patient-to-clinical-staff ratio is ${staffingRatio}. Active patients: ${metrics.activePatients}, clinical staff: ${clinicalStaff}.`,
     },
   ];
 
@@ -96,7 +130,7 @@ export default function InfrastructurePlanning() {
     toast.success("Infrastructure data exported successfully");
   };
 
-  if (loading.resources || loading.patients) {
+  if (loading.resources || loading.patients || loading.staff) {
     return (
       <DashboardLayout>
         <div className="flex items-center justify-center py-12">
@@ -112,39 +146,52 @@ export default function InfrastructurePlanning() {
         <div className="flex items-center justify-between">
           <div>
             <h1 className="text-xl font-semibold">Infrastructure Planning</h1>
-            <p className="text-sm text-muted-foreground">Capacity planning and expansion tracking</p>
+            <p className="text-sm text-muted-foreground">Capacity planning from live hospital resource data</p>
           </div>
           <Button variant="outline" size="sm" onClick={handleExport} className="gap-2">
             <Download className="h-3.5 w-3.5" /> Export Excel
           </Button>
         </div>
 
-        {/* Resource Summary */}
         <div className="grid grid-cols-2 sm:grid-cols-4 gap-4">
-          {resources.slice(0, 4).map((resource) => {
-            const utilization = Math.round((resource.used / resource.total) * 100);
-            return (
-              <div key={resource.id} className="bg-card border border-border rounded-lg p-4">
-                <p className="text-xs text-muted-foreground">{resource.name}</p>
-                <p className="text-lg font-semibold">{utilization}%</p>
-                <p className="text-xs text-muted-foreground">{resource.used} / {resource.total}</p>
-              </div>
-            );
-          })}
+          {resources.length === 0 ? (
+            <div className="col-span-full rounded-lg border border-border bg-card p-6 text-sm text-muted-foreground">
+              No resource inventory found. Add resources manually or import them from Excel in the Resource Insights page.
+            </div>
+          ) : (
+            resources.slice(0, 4).map((resource) => {
+              const utilization = getUtilization(resource);
+              return (
+                <div key={resource.id} className="bg-card border border-border rounded-lg p-4">
+                  <p className="text-xs text-muted-foreground">{resource.name}</p>
+                  <p className="text-lg font-semibold">{utilization}%</p>
+                  <p className="text-xs text-muted-foreground">
+                    {resource.used} / {resource.total} {resource.unit || "units"}
+                  </p>
+                </div>
+              );
+            })
+          )}
         </div>
 
         <div className="bg-card border border-border rounded-lg p-5">
-          <h3 className="text-sm font-semibold mb-4">Department Capacity: Current vs Needed</h3>
-          <ResponsiveContainer width="100%" height={260}>
-            <BarChart data={expansionData}>
-              <CartesianGrid strokeDasharray="3 3" stroke="hsl(var(--border))" />
-              <XAxis dataKey="department" tick={{ fontSize: 12 }} stroke="hsl(var(--muted-foreground))" />
-              <YAxis tick={{ fontSize: 12 }} stroke="hsl(var(--muted-foreground))" />
-              <Tooltip contentStyle={{ backgroundColor: "hsl(var(--card))", border: "1px solid hsl(var(--border))", borderRadius: "8px", fontSize: "12px" }} />
-              <Bar dataKey="current" fill="hsl(var(--chart-1))" radius={[4, 4, 0, 0]} name="Current" />
-              <Bar dataKey="needed" fill="hsl(var(--chart-3))" radius={[4, 4, 0, 0]} name="Needed" />
-            </BarChart>
-          </ResponsiveContainer>
+          <h3 className="text-sm font-semibold mb-4">Resource Capacity: Current vs Needed</h3>
+          {expansionData.length === 0 ? (
+            <div className="flex items-center justify-center h-[260px] text-muted-foreground">
+              No resource data available for the infrastructure chart.
+            </div>
+          ) : (
+            <ResponsiveContainer width="100%" height={260}>
+              <BarChart data={expansionData}>
+                <CartesianGrid strokeDasharray="3 3" stroke="hsl(var(--border))" />
+                <XAxis dataKey="resource" tick={{ fontSize: 12 }} stroke="hsl(var(--muted-foreground))" />
+                <YAxis tick={{ fontSize: 12 }} stroke="hsl(var(--muted-foreground))" />
+                <Tooltip contentStyle={{ backgroundColor: "hsl(var(--card))", border: "1px solid hsl(var(--border))", borderRadius: "8px", fontSize: "12px" }} />
+                <Bar dataKey="current" fill="hsl(var(--chart-1))" radius={[4, 4, 0, 0]} name="Current Capacity" />
+                <Bar dataKey="needed" fill="hsl(var(--chart-3))" radius={[4, 4, 0, 0]} name="Needed Capacity" />
+              </BarChart>
+            </ResponsiveContainer>
+          )}
         </div>
 
         <div className="grid md:grid-cols-2 gap-4">

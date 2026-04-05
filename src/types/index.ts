@@ -56,6 +56,18 @@ export interface Resource {
   updatedAt?: Date;
 }
 
+export interface ResourceHistoryEntry {
+  id: string;
+  resourceId: string;
+  name: string;
+  used: number;
+  total: number;
+  available: number;
+  unit?: string;
+  changeType: "created" | "updated" | "imported" | "deleted";
+  recordedAt?: Date;
+}
+
 // Daily admission data
 export interface DailyAdmission {
   id: string;

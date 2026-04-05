@@ -2,6 +2,7 @@ import { useNavigate } from "react-router-dom";
 import { Activity, ArrowRight, BarChart3, Shield, Users } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import FloatingLines from "@/components/FloatingLines";
+import { useAuth } from "@/hooks/use-auth";
 
 const features = [
   {
@@ -23,6 +24,11 @@ const features = [
 
 const Index = () => {
   const navigate = useNavigate();
+  const { user } = useAuth();
+
+  const handlePrimaryAction = () => {
+    navigate(user ? "/dashboard" : "/auth");
+  };
 
   return (
     <div className="min-h-screen bg-landing relative overflow-hidden">
@@ -56,10 +62,10 @@ const Index = () => {
           ))}
         </div>
         <Button
-          onClick={() => navigate("/dashboard")}
+          onClick={handlePrimaryAction}
           className="bg-landing-accent text-landing-bg hover:bg-landing-accent/90 text-sm px-5"
         >
-          Open Dashboard
+          {user ? "Open Dashboard" : "Sign In"}
         </Button>
       </nav>
 
@@ -80,10 +86,10 @@ const Index = () => {
         <div className="flex items-center justify-center gap-4">
           <Button
             size="lg"
-            onClick={() => navigate("/dashboard")}
+            onClick={handlePrimaryAction}
             className="bg-landing-accent text-landing-bg hover:bg-landing-accent/90 gap-2"
           >
-            Enter Dashboard
+            {user ? "Enter Dashboard" : "Enter Secure Portal"}
             <ArrowRight className="h-4 w-4" />
           </Button>
           <Button

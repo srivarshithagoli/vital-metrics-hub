@@ -1,6 +1,7 @@
 import { AlertTriangle, TrendingUp, Info, Check, Loader2 } from "lucide-react";
 import { useFirebase } from "@/contexts/FirebaseContext";
 import { Button } from "@/components/ui/button";
+import { generateOperationalAlerts } from "@/lib/hospitalInsights";
 
 const iconMap = {
   warning: AlertTriangle,
@@ -15,7 +16,7 @@ const styleMap = {
 };
 
 export function AlertPanel() {
-  const { alerts, loading, acknowledgeAlert } = useFirebase();
+  const { alerts, loading, acknowledgeAlert, patients, resources, staff } = useFirebase();
 
   const handleAcknowledge = async (id: string) => {
     try {
@@ -25,8 +26,7 @@ export function AlertPanel() {
     }
   };
 
-  // Filter out acknowledged alerts
-  const activeAlerts = alerts.filter(a => !a.acknowledged);
+  const activeAlerts = generateOperationalAlerts(patients, resources, staff, alerts);
 
   return (
     <div className="bg-card rounded-lg border border-border p-5">
@@ -59,15 +59,19 @@ export function AlertPanel() {
                     <p className="text-xs text-muted-foreground mt-1">Department: {alert.department}</p>
                   )}
                 </div>
-                <Button
-                  variant="ghost"
-                  size="sm"
-                  className="shrink-0 h-7 px-2"
-                  onClick={() => handleAcknowledge(alert.id)}
-                >
-                  <Check className="h-3.5 w-3.5 mr-1" />
-                  Acknowledge
-                </Button>
+                {alert.source === "firebase" ? (
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    className="shrink-0 h-7 px-2"
+                    onClick={() => handleAcknowledge(alert.id)}
+                  >
+                    <Check className="h-3.5 w-3.5 mr-1" />
+                    Acknowledge
+                  </Button>
+                ) : (
+                  <span className="text-[10px] uppercase tracking-wide text-muted-foreground mt-1">Auto</span>
+                )}
               </div>
             );
           })}

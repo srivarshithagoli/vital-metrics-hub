@@ -8,6 +8,7 @@ import { useFirebase } from "@/contexts/FirebaseContext";
 import { exportAllToExcel } from "@/lib/excelUtils";
 import { seedDatabase } from "@/lib/seedDatabase";
 import { toast } from "sonner";
+import { isFirebaseConfigured, missingFirebaseEnvKeys } from "@/lib/firebase";
 import {
   Dialog,
   DialogContent,
@@ -33,8 +34,6 @@ export default function SettingsPage() {
     messagingSenderId: import.meta.env.VITE_FIREBASE_MESSAGING_SENDER_ID || "Not configured",
     appId: import.meta.env.VITE_FIREBASE_APP_ID || "Not configured",
   };
-
-  const isFirebaseConfigured = import.meta.env.VITE_FIREBASE_PROJECT_ID !== undefined;
 
   const handleSeedDatabase = async () => {
     setIsSeeding(true);
@@ -99,7 +98,7 @@ export default function SettingsPage() {
               <p className="text-xs text-muted-foreground mt-1">
                 {isFirebaseConfigured 
                   ? `Project: ${firebaseConfig.projectId}`
-                  : "Set up your Firebase environment variables to enable real-time data sync."
+                  : `Set up your Firebase environment variables to enable real-time data sync. Missing: ${missingFirebaseEnvKeys.join(", ")}`
                 }
               </p>
               {!isFirebaseConfigured && (
@@ -112,6 +111,24 @@ export default function SettingsPage() {
                   View Setup Instructions
                 </Button>
               )}
+            </div>
+          </div>
+        </div>
+
+        <div className="bg-card border rounded-lg p-4 border-warning/30">
+          <div className="flex items-start gap-4">
+            <div className="p-2 rounded-md bg-warning/10">
+              <AlertTriangle className="h-4 w-4 text-warning" />
+            </div>
+            <div className="flex-1">
+              <p className="text-sm font-medium">
+                AI Backend Setup
+              </p>
+              <p className="text-xs text-muted-foreground mt-1">
+                The new RAG assistant now runs from the backend. Add <code>GEMINI_API_KEY</code>,
+                <code> PINECONE_API_KEY</code>, and <code>PINECONE_INDEX_HOST</code> to your root
+                <code> .env</code>, then run <code>npm run server:dev</code>.
+              </p>
             </div>
           </div>
         </div>
