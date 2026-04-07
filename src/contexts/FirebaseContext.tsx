@@ -12,6 +12,7 @@ import {
 } from "firebase/firestore";
 import { useLocation } from "react-router-dom";
 import { db } from "@/lib/firebase";
+import { useAuth } from "@/hooks/use-auth";
 import { Patient, MedicalRecord, Staff, Resource, Alert, DashboardKPI, ResourceHistoryEntry, PatientHistoryEntry } from "@/types";
 
 const routeCollectionMap: Record<string, Array<"patients" | "patientHistory" | "records" | "staff" | "resources" | "alerts" | "resourceHistory">> = {
@@ -81,6 +82,7 @@ const FirebaseContext = createContext<FirebaseContextType | undefined>(undefined
 
 export function FirebaseProvider({ children }: { children: React.ReactNode }) {
   const location = useLocation();
+  const { user, loading: authLoading } = useAuth();
   const [patients, setPatients] = useState<Patient[]>([]);
   const [patientHistory, setPatientHistory] = useState<PatientHistoryEntry[]>([]);
   const [records, setRecords] = useState<MedicalRecord[]>([]);
@@ -121,16 +123,24 @@ export function FirebaseProvider({ children }: { children: React.ReactNode }) {
     setLoading((prev) => ({ ...prev, patients: patients.length === 0 }));
 
     const patientsQuery = query(collection(db, "patients"), orderBy("createdAt", "desc"));
-    unsubscribersRef.current.patients = onSnapshot(patientsQuery, (snapshot) => {
-      const data = snapshot.docs.map((doc) => ({
-        id: doc.id,
-        ...doc.data(),
-        createdAt: doc.data().createdAt?.toDate(),
-        updatedAt: doc.data().updatedAt?.toDate(),
-      })) as Patient[];
-      setPatients(data);
-      setLoading((prev) => ({ ...prev, patients: false }));
-    });
+    unsubscribersRef.current.patients = onSnapshot(
+      patientsQuery,
+      (snapshot) => {
+        const data = snapshot.docs.map((doc) => ({
+          id: doc.id,
+          ...doc.data(),
+          createdAt: doc.data().createdAt?.toDate(),
+          updatedAt: doc.data().updatedAt?.toDate(),
+        })) as Patient[];
+        setPatients(data);
+        setLoading((prev) => ({ ...prev, patients: false }));
+      },
+      (error) => {
+        console.error("Patients subscription failed:", error);
+        startedRef.current.patients = false;
+        setLoading((prev) => ({ ...prev, patients: false }));
+      },
+    );
   }, [patients.length]);
 
   const ensurePatientHistorySubscription = useCallback(() => {
@@ -139,15 +149,23 @@ export function FirebaseProvider({ children }: { children: React.ReactNode }) {
     setLoading((prev) => ({ ...prev, patientHistory: patientHistory.length === 0 }));
 
     const patientHistoryQuery = query(collection(db, "patient_history"), orderBy("recordedAt", "desc"));
-    unsubscribersRef.current.patientHistory = onSnapshot(patientHistoryQuery, (snapshot) => {
-      const data = snapshot.docs.map((snapshotDoc) => ({
-        id: snapshotDoc.id,
-        ...snapshotDoc.data(),
-        recordedAt: snapshotDoc.data().recordedAt?.toDate(),
-      })) as PatientHistoryEntry[];
-      setPatientHistory(data);
-      setLoading((prev) => ({ ...prev, patientHistory: false }));
-    });
+    unsubscribersRef.current.patientHistory = onSnapshot(
+      patientHistoryQuery,
+      (snapshot) => {
+        const data = snapshot.docs.map((snapshotDoc) => ({
+          id: snapshotDoc.id,
+          ...snapshotDoc.data(),
+          recordedAt: snapshotDoc.data().recordedAt?.toDate(),
+        })) as PatientHistoryEntry[];
+        setPatientHistory(data);
+        setLoading((prev) => ({ ...prev, patientHistory: false }));
+      },
+      (error) => {
+        console.error("Patient history subscription failed:", error);
+        startedRef.current.patientHistory = false;
+        setLoading((prev) => ({ ...prev, patientHistory: false }));
+      },
+    );
   }, [patientHistory.length]);
 
   const ensureRecordsSubscription = useCallback(() => {
@@ -156,16 +174,24 @@ export function FirebaseProvider({ children }: { children: React.ReactNode }) {
     setLoading((prev) => ({ ...prev, records: records.length === 0 }));
 
     const recordsQuery = query(collection(db, "records"), orderBy("createdAt", "desc"));
-    unsubscribersRef.current.records = onSnapshot(recordsQuery, (snapshot) => {
-      const data = snapshot.docs.map((doc) => ({
-        id: doc.id,
-        ...doc.data(),
-        createdAt: doc.data().createdAt?.toDate(),
-        updatedAt: doc.data().updatedAt?.toDate(),
-      })) as MedicalRecord[];
-      setRecords(data);
-      setLoading((prev) => ({ ...prev, records: false }));
-    });
+    unsubscribersRef.current.records = onSnapshot(
+      recordsQuery,
+      (snapshot) => {
+        const data = snapshot.docs.map((doc) => ({
+          id: doc.id,
+          ...doc.data(),
+          createdAt: doc.data().createdAt?.toDate(),
+          updatedAt: doc.data().updatedAt?.toDate(),
+        })) as MedicalRecord[];
+        setRecords(data);
+        setLoading((prev) => ({ ...prev, records: false }));
+      },
+      (error) => {
+        console.error("Records subscription failed:", error);
+        startedRef.current.records = false;
+        setLoading((prev) => ({ ...prev, records: false }));
+      },
+    );
   }, [records.length]);
 
   const ensureStaffSubscription = useCallback(() => {
@@ -174,16 +200,24 @@ export function FirebaseProvider({ children }: { children: React.ReactNode }) {
     setLoading((prev) => ({ ...prev, staff: staff.length === 0 }));
 
     const staffQuery = query(collection(db, "staff"), orderBy("createdAt", "desc"));
-    unsubscribersRef.current.staff = onSnapshot(staffQuery, (snapshot) => {
-      const data = snapshot.docs.map((doc) => ({
-        id: doc.id,
-        ...doc.data(),
-        createdAt: doc.data().createdAt?.toDate(),
-        updatedAt: doc.data().updatedAt?.toDate(),
-      })) as Staff[];
-      setStaff(data);
-      setLoading((prev) => ({ ...prev, staff: false }));
-    });
+    unsubscribersRef.current.staff = onSnapshot(
+      staffQuery,
+      (snapshot) => {
+        const data = snapshot.docs.map((doc) => ({
+          id: doc.id,
+          ...doc.data(),
+          createdAt: doc.data().createdAt?.toDate(),
+          updatedAt: doc.data().updatedAt?.toDate(),
+        })) as Staff[];
+        setStaff(data);
+        setLoading((prev) => ({ ...prev, staff: false }));
+      },
+      (error) => {
+        console.error("Staff subscription failed:", error);
+        startedRef.current.staff = false;
+        setLoading((prev) => ({ ...prev, staff: false }));
+      },
+    );
   }, [staff.length]);
 
   const ensureResourcesSubscription = useCallback(() => {
@@ -191,15 +225,23 @@ export function FirebaseProvider({ children }: { children: React.ReactNode }) {
     startedRef.current.resources = true;
     setLoading((prev) => ({ ...prev, resources: resources.length === 0 }));
 
-    unsubscribersRef.current.resources = onSnapshot(collection(db, "resources"), (snapshot) => {
-      const data = snapshot.docs.map((doc) => ({
-        id: doc.id,
-        ...doc.data(),
-        updatedAt: doc.data().updatedAt?.toDate(),
-      })) as Resource[];
-      setResources(data);
-      setLoading((prev) => ({ ...prev, resources: false }));
-    });
+    unsubscribersRef.current.resources = onSnapshot(
+      collection(db, "resources"),
+      (snapshot) => {
+        const data = snapshot.docs.map((doc) => ({
+          id: doc.id,
+          ...doc.data(),
+          updatedAt: doc.data().updatedAt?.toDate(),
+        })) as Resource[];
+        setResources(data);
+        setLoading((prev) => ({ ...prev, resources: false }));
+      },
+      (error) => {
+        console.error("Resources subscription failed:", error);
+        startedRef.current.resources = false;
+        setLoading((prev) => ({ ...prev, resources: false }));
+      },
+    );
   }, [resources.length]);
 
   const ensureAlertsSubscription = useCallback(() => {
@@ -208,15 +250,23 @@ export function FirebaseProvider({ children }: { children: React.ReactNode }) {
     setLoading((prev) => ({ ...prev, alerts: alerts.length === 0 }));
 
     const alertsQuery = query(collection(db, "alerts"), orderBy("timestamp", "desc"));
-    unsubscribersRef.current.alerts = onSnapshot(alertsQuery, (snapshot) => {
-      const data = snapshot.docs.map((doc) => ({
-        id: doc.id,
-        ...doc.data(),
-        timestamp: doc.data().timestamp?.toDate(),
-      })) as Alert[];
-      setAlerts(data);
-      setLoading((prev) => ({ ...prev, alerts: false }));
-    });
+    unsubscribersRef.current.alerts = onSnapshot(
+      alertsQuery,
+      (snapshot) => {
+        const data = snapshot.docs.map((doc) => ({
+          id: doc.id,
+          ...doc.data(),
+          timestamp: doc.data().timestamp?.toDate(),
+        })) as Alert[];
+        setAlerts(data);
+        setLoading((prev) => ({ ...prev, alerts: false }));
+      },
+      (error) => {
+        console.error("Alerts subscription failed:", error);
+        startedRef.current.alerts = false;
+        setLoading((prev) => ({ ...prev, alerts: false }));
+      },
+    );
   }, [alerts.length]);
 
   const ensureResourceHistorySubscription = useCallback(() => {
@@ -225,15 +275,23 @@ export function FirebaseProvider({ children }: { children: React.ReactNode }) {
     setLoading((prev) => ({ ...prev, resourceHistory: resourceHistory.length === 0 }));
 
     const resourceHistoryQuery = query(collection(db, "resource_history"), orderBy("recordedAt", "desc"));
-    unsubscribersRef.current.resourceHistory = onSnapshot(resourceHistoryQuery, (snapshot) => {
-      const data = snapshot.docs.map((snapshotDoc) => ({
-        id: snapshotDoc.id,
-        ...snapshotDoc.data(),
-        recordedAt: snapshotDoc.data().recordedAt?.toDate(),
-      })) as ResourceHistoryEntry[];
-      setResourceHistory(data);
-      setLoading((prev) => ({ ...prev, resourceHistory: false }));
-    });
+    unsubscribersRef.current.resourceHistory = onSnapshot(
+      resourceHistoryQuery,
+      (snapshot) => {
+        const data = snapshot.docs.map((snapshotDoc) => ({
+          id: snapshotDoc.id,
+          ...snapshotDoc.data(),
+          recordedAt: snapshotDoc.data().recordedAt?.toDate(),
+        })) as ResourceHistoryEntry[];
+        setResourceHistory(data);
+        setLoading((prev) => ({ ...prev, resourceHistory: false }));
+      },
+      (error) => {
+        console.error("Resource history subscription failed:", error);
+        startedRef.current.resourceHistory = false;
+        setLoading((prev) => ({ ...prev, resourceHistory: false }));
+      },
+    );
   }, [resourceHistory.length]);
 
   const logResourceHistory = useCallback(
@@ -276,6 +334,10 @@ export function FirebaseProvider({ children }: { children: React.ReactNode }) {
   );
 
   useEffect(() => {
+    if (authLoading || !user) {
+      return;
+    }
+
     if (enabledCollections.has("patients")) ensurePatientsSubscription();
     if (enabledCollections.has("patientHistory")) ensurePatientHistorySubscription();
     if (enabledCollections.has("records")) ensureRecordsSubscription();
@@ -292,7 +354,49 @@ export function FirebaseProvider({ children }: { children: React.ReactNode }) {
     ensureResourceHistorySubscription,
     ensureResourcesSubscription,
     ensureStaffSubscription,
+    authLoading,
+    user,
   ]);
+
+  useEffect(() => {
+    if (authLoading) {
+      return;
+    }
+
+    if (user) {
+      return;
+    }
+
+    Object.values(unsubscribersRef.current).forEach((unsubscribe) => unsubscribe?.());
+    unsubscribersRef.current = {};
+    startedRef.current = {
+      patients: false,
+      patientHistory: false,
+      records: false,
+      staff: false,
+      resources: false,
+      resourceHistory: false,
+      alerts: false,
+    };
+
+    setPatients([]);
+    setPatientHistory([]);
+    setRecords([]);
+    setStaff([]);
+    setResources([]);
+    setResourceHistory([]);
+    setAlerts([]);
+    setKpi(null);
+    setLoading({
+      patients: true,
+      patientHistory: true,
+      records: true,
+      staff: true,
+      resources: true,
+      resourceHistory: true,
+      alerts: true,
+    });
+  }, [authLoading, user]);
 
   useEffect(() => {
     const unsubscribers = unsubscribersRef.current;

@@ -1,4 +1,4 @@
-import { collection, addDoc, getDocs, query, where } from "firebase/firestore";
+import { collection, addDoc, getDocs } from "firebase/firestore";
 import { db } from "./firebase";
 import { Timestamp } from "firebase/firestore";
 
@@ -59,18 +59,51 @@ async function isCollectionEmpty(collectionName: string): Promise<boolean> {
   return snapshot.empty;
 }
 
+function timestampDaysAgo(daysAgo: number) {
+  const date = new Date();
+  date.setDate(date.getDate() - Math.max(daysAgo, 0));
+  return Timestamp.fromDate(date);
+}
+
 // Seed the database with sample data
 export async function seedDatabase(): Promise<void> {
   try {
     // Seed patients
     if (await isCollectionEmpty("patients")) {
       console.log("Seeding patients...");
-      for (const patient of samplePatients) {
-        await addDoc(collection(db, "patients"), {
+      for (const [index, patient] of samplePatients.entries()) {
+        const createdAt = timestampDaysAgo(14 - index);
+        const patientRef = await addDoc(collection(db, "patients"), {
           ...patient,
-          createdAt: Timestamp.now(),
-          updatedAt: Timestamp.now(),
+          createdAt,
+          updatedAt: createdAt,
         });
+
+        await addDoc(collection(db, "patient_history"), {
+          patientId: patientRef.id,
+          name: patient.name,
+          diagnosis: patient.diagnosis,
+          status: patient.status,
+          eventType: "admission",
+          eventDate: patient.date,
+          admissionDate: patient.date,
+          source: "import",
+          recordedAt: createdAt,
+        });
+
+        if (patient.status === "Discharged") {
+          await addDoc(collection(db, "patient_history"), {
+            patientId: patientRef.id,
+            name: patient.name,
+            diagnosis: patient.diagnosis,
+            status: patient.status,
+            eventType: "discharge",
+            eventDate: patient.date,
+            admissionDate: patient.date,
+            source: "import",
+            recordedAt: timestampDaysAgo(13 - index),
+          });
+        }
       }
       console.log("Patients seeded successfully");
     }
@@ -78,11 +111,12 @@ export async function seedDatabase(): Promise<void> {
     // Seed records
     if (await isCollectionEmpty("records")) {
       console.log("Seeding records...");
-      for (const record of sampleRecords) {
+      for (const [index, record] of sampleRecords.entries()) {
+        const createdAt = timestampDaysAgo(12 - index);
         await addDoc(collection(db, "records"), {
           ...record,
-          createdAt: Timestamp.now(),
-          updatedAt: Timestamp.now(),
+          createdAt,
+          updatedAt: createdAt,
         });
       }
       console.log("Records seeded successfully");
@@ -91,11 +125,12 @@ export async function seedDatabase(): Promise<void> {
     // Seed staff
     if (await isCollectionEmpty("staff")) {
       console.log("Seeding staff...");
-      for (const staffMember of sampleStaff) {
+      for (const [index, staffMember] of sampleStaff.entries()) {
+        const createdAt = timestampDaysAgo(10 - index);
         await addDoc(collection(db, "staff"), {
           ...staffMember,
-          createdAt: Timestamp.now(),
-          updatedAt: Timestamp.now(),
+          createdAt,
+          updatedAt: createdAt,
         });
       }
       console.log("Staff seeded successfully");
@@ -104,10 +139,22 @@ export async function seedDatabase(): Promise<void> {
     // Seed resources
     if (await isCollectionEmpty("resources")) {
       console.log("Seeding resources...");
-      for (const resource of sampleResources) {
-        await addDoc(collection(db, "resources"), {
+      for (const [index, resource] of sampleResources.entries()) {
+        const updatedAt = timestampDaysAgo(7 - index);
+        const resourceRef = await addDoc(collection(db, "resources"), {
           ...resource,
-          updatedAt: Timestamp.now(),
+          updatedAt,
+        });
+
+        await addDoc(collection(db, "resource_history"), {
+          resourceId: resourceRef.id,
+          name: resource.name,
+          used: resource.used,
+          total: resource.total,
+          available: Math.max(resource.total - resource.used, 0),
+          unit: resource.unit || "units",
+          changeType: "imported",
+          recordedAt: updatedAt,
         });
       }
       console.log("Resources seeded successfully");
@@ -116,10 +163,10 @@ export async function seedDatabase(): Promise<void> {
     // Seed alerts
     if (await isCollectionEmpty("alerts")) {
       console.log("Seeding alerts...");
-      for (const alert of sampleAlerts) {
+      for (const [index, alert] of sampleAlerts.entries()) {
         await addDoc(collection(db, "alerts"), {
           ...alert,
-          timestamp: Timestamp.now(),
+          timestamp: timestampDaysAgo(index),
         });
       }
       console.log("Alerts seeded successfully");

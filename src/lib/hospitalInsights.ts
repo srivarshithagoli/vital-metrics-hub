@@ -153,76 +153,38 @@ function linearRegressionForecast(values: number[], futureOffset: number) {
 }
 
 export function buildWeeklyOxygenTrend(
-  patients: Patient[],
-  resources: Resource[],
+  _patients: Patient[],
+  _resources: Resource[],
   resourceHistory: ResourceHistoryEntry[] = [],
 ) {
   const oxygenNames = ["oâ‚‚ cylinders", "oÃ¢â€šâ€š cylinders", "oxygen cylinders"];
-  const oxygenResource = getResourceByName(resources, oxygenNames);
   const oxygenHistory = resourceHistory
     .filter((entry) => oxygenNames.includes(String(entry.name || "").toLowerCase()))
     .filter((entry) => entry.recordedAt instanceof Date && !Number.isNaN(entry.recordedAt.getTime()));
+  const grouped = new Map<string, { week: string; usageTotal: number; samples: number }>();
 
-  if (oxygenHistory.length > 0) {
-    const groupedHistory = new Map<string, { week: string; usageTotal: number; availableTotal: number; samples: number }>();
-
-    oxygenHistory.forEach((entry) => {
-      const recordedAt = entry.recordedAt as Date;
-      const weekStart = startOfWeek(recordedAt);
-      const key = weekStart.toISOString().slice(0, 10);
-
-      if (!groupedHistory.has(key)) {
-        groupedHistory.set(key, {
-          week: formatWeekLabel(weekStart),
-          usageTotal: 0,
-          availableTotal: 0,
-          samples: 0,
-        });
-      }
-
-      const current = groupedHistory.get(key)!;
-      current.usageTotal += entry.used;
-      current.availableTotal += entry.available;
-      current.samples += 1;
-    });
-
-    return Array.from(groupedHistory.values())
-      .slice(-6)
-      .map((item) => ({
-        week: item.week,
-        usage: Math.round(item.usageTotal / item.samples),
-        available: Math.round(item.availableTotal / item.samples),
-      }));
-  }
-
-  const dailySeries = buildDailySeries(patients, 42);
-  const grouped = new Map<string, { week: string; respiratory: number; admissions: number }>();
-
-  dailySeries.forEach((entry) => {
-    const weekStart = startOfWeek(entry.date);
+  oxygenHistory.forEach((entry) => {
+    const weekStart = startOfWeek(entry.recordedAt as Date);
     const key = weekStart.toISOString().slice(0, 10);
     if (!grouped.has(key)) {
       grouped.set(key, {
         week: formatWeekLabel(weekStart),
-        respiratory: 0,
-        admissions: 0,
+        usageTotal: 0,
+        samples: 0,
       });
     }
 
     const current = grouped.get(key)!;
-    current.respiratory += entry.respiratory;
-    current.admissions += entry.admissions;
+    current.usageTotal += entry.used;
+    current.samples += 1;
   });
 
-  const series = Array.from(grouped.values()).slice(-6);
-  const maxRespiratory = Math.max(...series.map((item) => item.respiratory), 1);
-  const baseOxygenUse = oxygenResource?.used || 0;
-
-  return series.map((item) => ({
+  return Array.from(grouped.values())
+    .slice(-6)
+    .map((item) => ({
     week: item.week,
-    usage: Math.round(baseOxygenUse * (0.55 + item.respiratory / maxRespiratory)),
-    respiratory: item.respiratory,
-    admissions: item.admissions,
+    usage: Math.round(item.usageTotal / item.samples),
+    samples: item.samples,
   }));
 }
 
@@ -338,7 +300,7 @@ export function buildMonthlyCapacityTrend(resourceHistory: ResourceHistoryEntry[
   }));
 }
 
-export function buildWeeklyPatientFlow(patientHistory: PatientHistoryEntry[], patients: Patient[] = []) {
+export function buildWeeklyPatientFlow(patientHistory: PatientHistoryEntry[], _patients: Patient[] = []) {
   const today = startOfDay(new Date());
   const start = new Date(today);
   start.setDate(start.getDate() - 6);
@@ -356,29 +318,19 @@ export function buildWeeklyPatientFlow(patientHistory: PatientHistoryEntry[], pa
 
   const byKey = new Map(series.map((entry) => [entry.key, entry]));
 
-  if (patientHistory.length > 0) {
-    patientHistory.forEach((entry) => {
-      const eventType = entry.eventType || "admission";
-      const dateValue = entry.eventDate || entry.admissionDate;
-      const key = dateValue;
-      const target = byKey.get(key);
-      if (!target) return;
+  patientHistory.forEach((entry) => {
+    const eventType = entry.eventType || "admission";
+    const dateValue = entry.eventDate || entry.admissionDate;
+    const key = dateValue;
+    const target = byKey.get(key);
+    if (!target) return;
 
-      if (eventType === "discharge") {
-        target.discharges += 1;
-      } else {
-        target.admissions += 1;
-      }
-    });
-  } else {
-    const dailySeries = buildDailySeries(patients, 7);
-    dailySeries.forEach((entry) => {
-      const target = byKey.get(entry.key);
-      if (!target) return;
-      target.admissions = entry.admissions;
-      target.discharges = entry.discharges;
-    });
-  }
+    if (eventType === "discharge") {
+      target.discharges += 1;
+    } else {
+      target.admissions += 1;
+    }
+  });
 
   return series.map(({ day, admissions, discharges }) => ({
     day,
@@ -387,7 +339,7 @@ export function buildWeeklyPatientFlow(patientHistory: PatientHistoryEntry[], pa
   }));
 }
 
-export function buildWeeklyCapacityTrend(resourceHistory: ResourceHistoryEntry[], resources: Resource[]) {
+export function buildWeeklyCapacityTrend(resourceHistory: ResourceHistoryEntry[], _resources: Resource[]) {
   const today = startOfDay(new Date());
   const start = new Date(today);
   start.setDate(start.getDate() - 6);
@@ -428,13 +380,10 @@ export function buildWeeklyCapacityTrend(resourceHistory: ResourceHistoryEntry[]
     });
   }
 
-  const currentBeds = getResourceByName(resources, ["beds"]);
-  const currentRooms = getResourceByName(resources, ["rooms"]);
-
   return series.map((entry) => ({
     day: entry.day,
-    bedsAvailable: entry.bedsSamples ? Math.round(entry.bedsAvailableTotal / entry.bedsSamples) : Math.max((currentBeds?.total || 0) - (currentBeds?.used || 0), 0),
-    roomsAvailable: entry.roomsSamples ? Math.round(entry.roomsAvailableTotal / entry.roomsSamples) : Math.max((currentRooms?.total || 0) - (currentRooms?.used || 0), 0),
+    bedsAvailable: entry.bedsSamples ? Math.round(entry.bedsAvailableTotal / entry.bedsSamples) : 0,
+    roomsAvailable: entry.roomsSamples ? Math.round(entry.roomsAvailableTotal / entry.roomsSamples) : 0,
   }));
 }
 

@@ -1,10 +1,5 @@
 import { initializeApp } from "firebase/app";
-import {
-  getFirestore,
-  initializeFirestore,
-  persistentLocalCache,
-  persistentSingleTabManager,
-} from "firebase/firestore";
+import { getFirestore } from "firebase/firestore";
 import { getAuth } from "firebase/auth";
 
 const firebaseConfig = {
@@ -39,17 +34,7 @@ export const missingFirebaseEnvKeys = Object.entries({
 export const isFirebaseConfigured = missingFirebaseEnvKeys.length === 0;
 
 const app = initializeApp(firebaseConfig);
-
-// Use persistent local cache so refreshes can render from IndexedDB immediately
-// instead of waiting on a round-trip to Firestore every time.
-const db =
-  typeof window !== "undefined"
-    ? initializeFirestore(app, {
-        localCache: persistentLocalCache({
-          tabManager: persistentSingleTabManager(),
-        }),
-      })
-    : getFirestore(app);
+const db = getFirestore(app);
 
 export { db };
 export const auth = getAuth(app);

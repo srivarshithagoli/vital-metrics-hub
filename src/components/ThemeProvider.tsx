@@ -13,8 +13,8 @@ export const useTheme = () => useContext(ThemeContext);
 
 export function ThemeProvider({ children }: { children: ReactNode }) {
   const [theme, setTheme] = useState<Theme>(() => {
-    if (typeof window !== "undefined") {
-      return (localStorage.getItem("ehr-theme") as Theme) || "light";
+    if (typeof window !== "undefined" && window.matchMedia("(prefers-color-scheme: dark)").matches) {
+      return "dark";
     }
     return "light";
   });
@@ -23,7 +23,6 @@ export function ThemeProvider({ children }: { children: ReactNode }) {
     const root = document.documentElement;
     root.classList.remove("light", "dark");
     root.classList.add(theme);
-    localStorage.setItem("ehr-theme", theme);
   }, [theme]);
 
   const toggleTheme = () => setTheme((prev) => (prev === "light" ? "dark" : "light"));

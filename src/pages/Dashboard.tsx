@@ -26,6 +26,8 @@ export default function Dashboard() {
   const { patients, patientHistory, resources, resourceHistory, staff, loading } = useFirebase();
   const patientFlowData = buildWeeklyPatientFlow(patientHistory, patients);
   const capacityTrendData = buildWeeklyCapacityTrend(resourceHistory, resources);
+  const hasPatientHistory = patientFlowData.some((entry) => entry.admissions > 0 || entry.discharges > 0);
+  const hasCapacityHistory = capacityTrendData.some((entry) => entry.bedsAvailable > 0 || entry.roomsAvailable > 0);
   const metrics = calculateForecastMetrics(patients, resources, staff);
 
   const bedResource = getResourceByName(resources, ["beds"]);
@@ -105,6 +107,10 @@ export default function Dashboard() {
               <div className="flex items-center justify-center h-[240px]">
                 <Loader2 className="h-6 w-6 animate-spin text-muted-foreground" />
               </div>
+            ) : !hasPatientHistory ? (
+              <div className="flex items-center justify-center h-[240px] text-muted-foreground">
+                No Firebase patient history yet. Add or update patients to build the chart.
+              </div>
             ) : (
               <ResponsiveContainer width="100%" height={240}>
                 <LineChart data={patientFlowData}>
@@ -146,9 +152,9 @@ export default function Dashboard() {
               <div className="flex items-center justify-center h-[240px]">
                 <Loader2 className="h-6 w-6 animate-spin text-muted-foreground" />
               </div>
-            ) : capacityTrendData.every((entry) => entry.bedsAvailable === 0 && entry.roomsAvailable === 0) ? (
+            ) : !hasCapacityHistory ? (
               <div className="flex items-center justify-center h-[240px] text-muted-foreground">
-                Add Beds and Rooms resources to show weekly availability.
+                No Firebase resource history yet. Update Beds or Rooms to build the chart.
               </div>
             ) : (
               <ResponsiveContainer width="100%" height={240}>

@@ -58,6 +58,9 @@ export default function Analytics() {
   const patientFlowData = buildWeeklyPatientFlow(patientHistory, patients);
   const capacityTrend = buildWeeklyCapacityTrend(resourceHistory, resources);
   const oxygenTrend = buildWeeklyOxygenTrend(patients, resources, resourceHistory);
+  const hasPatientHistory = patientFlowData.some((entry) => entry.admissions > 0 || entry.discharges > 0);
+  const hasCapacityHistory = capacityTrend.some((entry) => entry.bedsAvailable > 0 || entry.roomsAvailable > 0);
+  const hasOxygenHistory = oxygenTrend.some((entry) => entry.usage > 0);
   const metrics = calculateForecastMetrics(patients, resources, []);
 
   const predictions = [
@@ -117,6 +120,10 @@ export default function Analytics() {
             {loading.patientHistory && loading.patients ? (
               <div className="flex items-center justify-center h-[250px]">
                 <Loader2 className="h-6 w-6 animate-spin text-muted-foreground" />
+              </div>
+            ) : !hasPatientHistory ? (
+              <div className="flex items-center justify-center h-[250px] text-muted-foreground">
+                No Firebase patient history yet. New admissions and discharges will appear here.
               </div>
             ) : (
               <ResponsiveContainer width="100%" height={250}>
@@ -182,9 +189,9 @@ export default function Analytics() {
               <div className="flex items-center justify-center h-[220px]">
                 <Loader2 className="h-6 w-6 animate-spin text-muted-foreground" />
               </div>
-            ) : capacityTrend.every((entry) => entry.bedsAvailable === 0 && entry.roomsAvailable === 0) ? (
+            ) : !hasCapacityHistory ? (
               <div className="flex items-center justify-center h-[220px] text-muted-foreground">
-                Add Beds and Rooms resources to show weekly availability.
+                No Firebase resource history yet. Update Beds or Rooms to build this trend.
               </div>
             ) : (
               <ResponsiveContainer width="100%" height={220}>
@@ -201,12 +208,14 @@ export default function Analytics() {
           </div>
 
           <div className="bg-card border border-border rounded-lg p-5">
-            <h3 className="text-sm font-semibold mb-4">
-              {resourceHistory.length > 0 ? "Oxygen Usage Trend (Weekly)" : "Estimated Oxygen Demand Trend (Weekly)"}
-            </h3>
+            <h3 className="text-sm font-semibold mb-4">Oxygen Usage Trend (Weekly)</h3>
             {loading.patients || loading.resources || loading.resourceHistory ? (
               <div className="flex items-center justify-center h-[220px]">
                 <Loader2 className="h-6 w-6 animate-spin text-muted-foreground" />
+              </div>
+            ) : !hasOxygenHistory ? (
+              <div className="flex items-center justify-center h-[220px] text-muted-foreground">
+                No Firebase oxygen history yet. Update Oxygen Cylinders to build this trend.
               </div>
             ) : (
               <ResponsiveContainer width="100%" height={220}>
