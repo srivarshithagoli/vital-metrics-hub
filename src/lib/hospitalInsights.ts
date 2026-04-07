@@ -300,7 +300,7 @@ export function buildMonthlyCapacityTrend(resourceHistory: ResourceHistoryEntry[
   }));
 }
 
-export function buildWeeklyPatientFlow(patientHistory: PatientHistoryEntry[], _patients: Patient[] = []) {
+export function buildWeeklyPatientFlow(patientHistory: PatientHistoryEntry[], patients: Patient[] = []) {
   const today = startOfDay(new Date());
   const start = new Date(today);
   start.setDate(start.getDate() - 6);
@@ -317,6 +317,7 @@ export function buildWeeklyPatientFlow(patientHistory: PatientHistoryEntry[], _p
   });
 
   const byKey = new Map(series.map((entry) => [entry.key, entry]));
+  let historyInRange = 0;
 
   patientHistory.forEach((entry) => {
     const eventType = entry.eventType || "admission";
@@ -325,12 +326,24 @@ export function buildWeeklyPatientFlow(patientHistory: PatientHistoryEntry[], _p
     const target = byKey.get(key);
     if (!target) return;
 
+    historyInRange += 1;
+
     if (eventType === "discharge") {
       target.discharges += 1;
     } else {
       target.admissions += 1;
     }
   });
+
+  if (historyInRange === 0) {
+    const dailySeries = buildDailySeries(patients, 7);
+    dailySeries.forEach((entry) => {
+      const target = byKey.get(entry.key);
+      if (!target) return;
+      target.admissions = entry.admissions;
+      target.discharges = entry.discharges;
+    });
+  }
 
   return series.map(({ day, admissions, discharges }) => ({
     day,

@@ -8,7 +8,9 @@ import {
   doc,
   query,
   orderBy,
-  Timestamp
+  Timestamp,
+  setDoc,
+  writeBatch,
 } from "firebase/firestore";
 import { useLocation } from "react-router-dom";
 import { db } from "@/lib/firebase";
@@ -111,6 +113,7 @@ export function FirebaseProvider({ children }: { children: React.ReactNode }) {
     resourceHistory: false,
     alerts: false,
   });
+  const demoSeedAttemptedRef = React.useRef(false);
 
   const enabledCollections = useMemo(
     () => new Set(routeCollectionMap[location.pathname] || ["patients", "patientHistory", "resources", "staff", "alerts", "resourceHistory"]),
@@ -333,6 +336,143 @@ export function FirebaseProvider({ children }: { children: React.ReactNode }) {
     [],
   );
 
+  const ensureDashboardDemoData = useCallback(async () => {
+    const hasBeds = resources.some((resource) => resource.name.toLowerCase() === "beds");
+    const hasRooms = resources.some((resource) => resource.name.toLowerCase() === "rooms");
+    const hasPatientHistory = patientHistory.length > 0;
+    const hasResourceHistory = resourceHistory.length > 0;
+    const needsPatients = patients.length < 3;
+    const needsResources = !hasBeds || !hasRooms;
+    const needsHistory = !hasPatientHistory || !hasResourceHistory;
+
+    if (!needsPatients && !needsResources && !needsHistory) {
+      return;
+    }
+
+    const batch = writeBatch(db);
+    const today = new Date();
+
+    const demoPatients = [
+      {
+        id: "demo-patient-1",
+        name: "Riya Sharma",
+        age: 34,
+        diagnosis: "Pneumonia",
+        date: new Date(today.getFullYear(), today.getMonth(), today.getDate() - 5).toISOString().slice(0, 10),
+        status: "Admitted" as const,
+      },
+      {
+        id: "demo-patient-2",
+        name: "Arjun Nair",
+        age: 52,
+        diagnosis: "COPD Exacerbation",
+        date: new Date(today.getFullYear(), today.getMonth(), today.getDate() - 3).toISOString().slice(0, 10),
+        status: "Under Treatment" as const,
+      },
+      {
+        id: "demo-patient-3",
+        name: "Meera Patel",
+        age: 61,
+        diagnosis: "Cardiac Observation",
+        date: new Date(today.getFullYear(), today.getMonth(), today.getDate() - 1).toISOString().slice(0, 10),
+        status: "ICU" as const,
+      },
+    ];
+
+    if (needsPatients) {
+      demoPatients.forEach((patient, index) => {
+        const createdAtDate = new Date(today);
+        createdAtDate.setDate(today.getDate() - (5 - index * 2));
+        const createdAt = Timestamp.fromDate(createdAtDate);
+
+        batch.set(doc(db, "patients", patient.id), {
+          name: patient.name,
+          age: patient.age,
+          diagnosis: patient.diagnosis,
+          date: patient.date,
+          status: patient.status,
+          createdAt,
+          updatedAt: createdAt,
+        }, { merge: true });
+
+        batch.set(doc(db, "patient_history", `demo-history-${patient.id}`), {
+          patientId: patient.id,
+          name: patient.name,
+          diagnosis: patient.diagnosis,
+          status: patient.status,
+          eventType: "admission",
+          eventDate: patient.date,
+          admissionDate: patient.date,
+          source: "import",
+          recordedAt: createdAt,
+        }, { merge: true });
+      });
+    }
+
+    const demoResources = [
+      { id: "demo-resource-beds", name: "Beds", used: 68, total: 100, unit: "beds" },
+      { id: "demo-resource-rooms", name: "Rooms", used: 34, total: 50, unit: "rooms" },
+      { id: "demo-resource-icu", name: "ICU", used: 12, total: 20, unit: "beds" },
+      { id: "demo-resource-oxygen", name: "Oxygen Cylinders", used: 28, total: 60, unit: "cylinders" },
+    ];
+
+    if (needsResources) {
+      demoResources.forEach((resource) => {
+        batch.set(doc(db, "resources", resource.id), {
+          name: resource.name,
+          used: resource.used,
+          total: resource.total,
+          unit: resource.unit,
+          updatedAt: Timestamp.now(),
+        }, { merge: true });
+      });
+    }
+
+    if (needsHistory) {
+      const bedSeries = [74, 72, 71, 70, 69, 68, 68];
+      const roomSeries = [18, 17, 16, 16, 15, 15, 16];
+
+      bedSeries.forEach((used, index) => {
+        const recordedAtDate = new Date(today);
+        recordedAtDate.setDate(today.getDate() - (6 - index));
+        const recordedAt = Timestamp.fromDate(recordedAtDate);
+
+        batch.set(doc(db, "resource_history", `demo-beds-history-${index}`), {
+          resourceId: "demo-resource-beds",
+          name: "Beds",
+          used,
+          total: 100,
+          available: 100 - used,
+          unit: "beds",
+          changeType: "imported",
+          recordedAt,
+        }, { merge: true });
+
+        const roomUsed = roomSeries[index];
+        batch.set(doc(db, "resource_history", `demo-rooms-history-${index}`), {
+          resourceId: "demo-resource-rooms",
+          name: "Rooms",
+          used: roomUsed,
+          total: 50,
+          available: 50 - roomUsed,
+          unit: "rooms",
+          changeType: "imported",
+          recordedAt,
+        }, { merge: true });
+      });
+    }
+
+    await batch.commit();
+
+    await setDoc(doc(db, "alerts", "demo-operational-alert"), {
+      type: "warning",
+      message: "Beds are trending toward high occupancy this week.",
+      department: "General",
+      timestamp: Timestamp.now(),
+      acknowledged: false,
+    }, { merge: true });
+  }, [patientHistory.length, patients.length, resourceHistory.length, resources]);
+
   useEffect(() => {
     if (authLoading || !user) {
       return;
@@ -355,6 +495,30 @@ export function FirebaseProvider({ children }: { children: React.ReactNode }) {
     ensureResourcesSubscription,
     ensureStaffSubscription,
     authLoading,
+    user,
+  ]);
+
+  useEffect(() => {
+    if (authLoading || !user || demoSeedAttemptedRef.current) {
+      return;
+    }
+
+    if (loading.patients || loading.resources || loading.patientHistory || loading.resourceHistory) {
+      return;
+    }
+
+    demoSeedAttemptedRef.current = true;
+    ensureDashboardDemoData().catch((error) => {
+      demoSeedAttemptedRef.current = false;
+      console.error("Failed to seed Firestore demo data:", error);
+    });
+  }, [
+    authLoading,
+    ensureDashboardDemoData,
+    loading.patientHistory,
+    loading.patients,
+    loading.resourceHistory,
+    loading.resources,
     user,
   ]);
 
@@ -429,13 +593,30 @@ export function FirebaseProvider({ children }: { children: React.ReactNode }) {
 
   // Patient operations
   const addPatient = useCallback(async (patient: Omit<Patient, "id" | "createdAt" | "updatedAt">) => {
-    const patientRef = await addDoc(collection(db, "patients"), {
+    const now = Timestamp.now();
+    const patientRef = doc(collection(db, "patients"));
+    const patientHistoryRef = doc(collection(db, "patient_history"));
+    const batch = writeBatch(db);
+
+    batch.set(patientRef, {
       ...patient,
-      createdAt: Timestamp.now(),
-      updatedAt: Timestamp.now(),
+      createdAt: now,
+      updatedAt: now,
     });
-    await logPatientEvent(patientRef.id, patient, "manual", "admission", patient.date);
-  }, [logPatientEvent]);
+    batch.set(patientHistoryRef, {
+      patientId: patientRef.id,
+      name: patient.name,
+      diagnosis: patient.diagnosis,
+      status: patient.status,
+      eventType: "admission",
+      eventDate: patient.date,
+      admissionDate: patient.date,
+      source: "manual",
+      recordedAt: now,
+    });
+
+    await batch.commit();
+  }, []);
 
   const updatePatient = useCallback(async (id: string, patient: Partial<Patient>) => {
     const existingPatient = patients.find((item) => item.id === id);
@@ -552,16 +733,33 @@ export function FirebaseProvider({ children }: { children: React.ReactNode }) {
 
   // Bulk operations
   const bulkAddPatients = useCallback(async (patientsData: Omit<Patient, "id" | "createdAt" | "updatedAt">[]) => {
-    const batch = patientsData.map(async (patient) => {
-      const patientRef = await addDoc(collection(db, "patients"), {
+    const batch = writeBatch(db);
+
+    patientsData.forEach((patient) => {
+      const now = Timestamp.now();
+      const patientRef = doc(collection(db, "patients"));
+      const patientHistoryRef = doc(collection(db, "patient_history"));
+
+      batch.set(patientRef, {
         ...patient,
-        createdAt: Timestamp.now(),
-        updatedAt: Timestamp.now(),
+        createdAt: now,
+        updatedAt: now,
       });
-      await logPatientEvent(patientRef.id, patient, "import", "admission", patient.date);
+      batch.set(patientHistoryRef, {
+        patientId: patientRef.id,
+        name: patient.name,
+        diagnosis: patient.diagnosis,
+        status: patient.status,
+        eventType: "admission",
+        eventDate: patient.date,
+        admissionDate: patient.date,
+        source: "import",
+        recordedAt: now,
+      });
     });
-    await Promise.all(batch);
-  }, [logPatientEvent]);
+
+    await batch.commit();
+  }, []);
 
   const bulkAddRecords = useCallback(async (recordsData: Omit<MedicalRecord, "id" | "createdAt" | "updatedAt">[]) => {
     const batch = recordsData.map((record) =>
