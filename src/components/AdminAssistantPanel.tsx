@@ -1,9 +1,10 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import { AlertTriangle, Loader2, SendHorizonal, Sparkles, TrendingUp } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
 import { useFirebase } from "@/contexts/FirebaseContext";
 import { askAdminAssistant, getAdminAssistantHealth } from "@/lib/adminAssistantApi";
+import { generateOperationalAlerts } from "@/lib/hospitalInsights";
 import { toast } from "sonner";
 
 const severityStyles = {
@@ -45,7 +46,6 @@ export function AdminAssistantPanel({ compact = false }: AdminAssistantPanelProp
   const [serverReady, setServerReady] = useState<boolean | null>(null);
   const [missingServerKeys, setMissingServerKeys] = useState<string[]>([]);
   const [isGenerating, setIsGenerating] = useState(false);
-  const autoRequested = useRef(false);
 
   const exampleQuestions = useMemo(
     () => [
@@ -55,6 +55,11 @@ export function AdminAssistantPanel({ compact = false }: AdminAssistantPanelProp
       "How should we optimize room and ICU allocation now?",
     ],
     [],
+  );
+
+  const operationalAlerts = useMemo(
+    () => generateOperationalAlerts(patients, resources, staff, alerts),
+    [alerts, patients, resources, staff],
   );
 
   const checkServerHealth = useCallback(async () => {
@@ -163,16 +168,6 @@ export function AdminAssistantPanel({ compact = false }: AdminAssistantPanelProp
     [alerts, checkServerHealth, messages, patients, question, resources, staff],
   );
 
-  useEffect(() => {
-    if (autoRequested.current) return;
-    if (serverReady !== true) return;
-    if (loading.patients || loading.resources || loading.staff || loading.alerts) return;
-    if (!patients.length && !resources.length) return;
-
-    autoRequested.current = true;
-    sendMessage(exampleQuestions[0], true);
-  }, [exampleQuestions, loading.alerts, loading.patients, loading.resources, loading.staff, patients.length, resources.length, sendMessage, serverReady]);
-
   const metricCards = metrics
     ? [
         { label: "Projected Admissions (7d)", value: metrics.projectedAdmissionsNext7 },
@@ -194,7 +189,7 @@ export function AdminAssistantPanel({ compact = false }: AdminAssistantPanelProp
             Pinecone-backed RAG over live operational data with short-term resource predictions.
           </p>
         </div>
-        <Button variant="outline" size="sm" onClick={() => sendMessage(exampleQuestions[0], true)} disabled={isGenerating} className="gap-2">
+        <Button variant="outline" size="sm" onClick={() => sendMessage(exampleQuestions[0])} disabled={isGenerating} className="gap-2">
           {isGenerating ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : null}
           Refresh AI
         </Button>
@@ -218,10 +213,10 @@ export function AdminAssistantPanel({ compact = false }: AdminAssistantPanelProp
         </div>
       ) : null}
 
-      {predictionAlerts.length > 0 ? (
+      {operationalAlerts.length > 0 ? (
         <div className="space-y-2">
-          {predictionAlerts.map((alert) => (
-            <div key={`${alert.severity}-${alert.title}`} className={`rounded-md border p-3 ${severityStyles[alert.severity]}`}>
+          {operationalAlerts.map((alert) => (
+            <div key={`${alert.id}-${alert.title}`} className={`rounded-md border p-3 ${severityStyles[alert.type]}`}>
               <div className="flex items-start gap-2">
                 <AlertTriangle className="h-4 w-4 mt-0.5 shrink-0" />
                 <div>
@@ -238,7 +233,7 @@ export function AdminAssistantPanel({ compact = false }: AdminAssistantPanelProp
         <div className={`${compact ? "max-h-[280px]" : "max-h-[360px]"} overflow-y-auto p-4 space-y-3`}>
           {messages.length === 0 ? (
             <div className="text-sm text-muted-foreground">
-              Waiting for the first AI summary. You can also ask about bed demand, oxygen usage, ICU pressure, or room allocation.
+              Ask about bed demand, oxygen usage, ICU pressure, room allocation, or admissions whenever you want.
             </div>
           ) : (
             messages.map((message) => (

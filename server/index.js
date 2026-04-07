@@ -44,6 +44,16 @@ function round(value) {
   return Math.round(value * 10) / 10;
 }
 
+function startOfDay(date) {
+  const next = new Date(date);
+  next.setHours(0, 0, 0, 0);
+  return next;
+}
+
+function formatDateLabel(date) {
+  return date.toISOString().slice(0, 10);
+}
+
 function getResourceByName(resources, names) {
   return resources.find((resource) => names.includes(String(resource.name || "").toLowerCase()));
 }
@@ -68,9 +78,8 @@ function categorizeDiagnosis(diagnosis = "") {
 }
 
 function buildDailySeries(patients, totalDays = 21) {
-  const today = new Date();
+  const today = startOfDay(new Date());
   const start = new Date(today);
-  start.setHours(0, 0, 0, 0);
   start.setDate(start.getDate() - (totalDays - 1));
 
   const counts = Array.from({ length: totalDays }, (_, offset) => {
@@ -103,6 +112,49 @@ function buildDailySeries(patients, totalDays = 21) {
   });
 
   return counts;
+}
+
+function buildOperationalSnapshot(patients) {
+  const today = startOfDay(new Date());
+  const yesterday = new Date(today);
+  yesterday.setDate(today.getDate() - 1);
+
+  const todayKey = formatDateLabel(today);
+  const yesterdayKey = formatDateLabel(yesterday);
+
+  let admissionsToday = 0;
+  let admissionsYesterday = 0;
+  let respiratoryToday = 0;
+  let icuToday = 0;
+
+  patients.forEach((patient) => {
+    const sourceDate = parseDateValue(patient.createdAt) || parseDateValue(patient.date);
+    if (!sourceDate) return;
+
+    const key = formatDateLabel(sourceDate);
+    if (key === todayKey) {
+      admissionsToday += 1;
+      if (categorizeDiagnosis(patient.diagnosis) === "respiratory") {
+        respiratoryToday += 1;
+      }
+      if (patient.status === "ICU") {
+        icuToday += 1;
+      }
+    }
+
+    if (key === yesterdayKey) {
+      admissionsYesterday += 1;
+    }
+  });
+
+  return {
+    todayKey,
+    yesterdayKey,
+    admissionsToday,
+    admissionsYesterday,
+    respiratoryToday,
+    icuToday,
+  };
 }
 
 function linearRegressionForecast(values, forecastDays) {
@@ -138,6 +190,7 @@ function createPredictions(data) {
   const icuPatients = patients.filter((patient) => patient.status === "ICU");
   const respiratoryPatients = patients.filter((patient) => categorizeDiagnosis(patient.diagnosis) === "respiratory");
   const dailySeries = buildDailySeries(patients, 21);
+  const snapshot = buildOperationalSnapshot(patients);
   const admissionsSeries = dailySeries.map((entry) => entry.admissions);
   const respiratorySeries = dailySeries.map((entry) => entry.respiratory);
 
@@ -233,6 +286,11 @@ function createPredictions(data) {
       projectedOxygenDemand,
       admissionsGrowthPct: round(admissionsGrowth * 100),
       respiratoryGrowthPct: round(respiratoryGrowth * 100),
+      reportDate: snapshot.todayKey,
+      admissionsToday: snapshot.admissionsToday,
+      admissionsYesterday: snapshot.admissionsYesterday,
+      respiratoryToday: snapshot.respiratoryToday,
+      icuAdmissionsToday: snapshot.icuToday,
       openAlerts: alerts.filter((alert) => !alert.acknowledged).length,
       activePatients: activePatients.length,
     },
@@ -251,12 +309,28 @@ function buildDocuments(data, predictions) {
     id: "overview",
     text: [
       "Hospital operations overview.",
+      `Report date: ${predictions.metrics.reportDate}.`,
       `Active patients: ${activePatients.length}.`,
+      `Admissions today: ${predictions.metrics.admissionsToday}.`,
+      `Admissions yesterday: ${predictions.metrics.admissionsYesterday}.`,
       `Respiratory patients: ${respiratoryPatients.length}.`,
       `Staff count: ${staff.length}.`,
       `Open alerts: ${alerts.filter((alert) => !alert.acknowledged).length}.`,
     ].join(" "),
     metadata: { category: "overview", title: "Hospital overview" },
+  });
+
+  documents.push({
+    id: "today-operations",
+    text: [
+      `Daily operations snapshot for ${predictions.metrics.reportDate}.`,
+      `Admissions today: ${predictions.metrics.admissionsToday}.`,
+      `Admissions yesterday: ${predictions.metrics.admissionsYesterday}.`,
+      `Respiratory admissions today: ${predictions.metrics.respiratoryToday}.`,
+      `ICU admissions today: ${predictions.metrics.icuAdmissionsToday}.`,
+      `Active patients now: ${predictions.metrics.activePatients}.`,
+    ].join(" "),
+    metadata: { category: "daily_snapshot", title: "Today's admissions snapshot" },
   });
 
   resources.forEach((resource) => {
@@ -384,6 +458,8 @@ async function generateAnswer(ai, question, predictions, retrievedDocs, history 
         "You are a hospital operations assistant for infrastructure and resource management only.",
         "Do not provide diagnosis or treatment advice.",
         "Use the retrieved context and predictive metrics below only.",
+        "If the user asks about today, use the exact daily metrics when available instead of giving a 7-day forecast summary.",
+        "If the exact count for today is present in the context, state it directly and mention the report date.",
         "Be practical and concise.",
         "Return a short conversational answer with operational reasoning and practical next steps.",
         `Question: ${question}`,

@@ -12,22 +12,23 @@ import {
 } from "firebase/firestore";
 import { useLocation } from "react-router-dom";
 import { db } from "@/lib/firebase";
-import { Patient, MedicalRecord, Staff, Resource, Alert, DashboardKPI, ResourceHistoryEntry } from "@/types";
+import { Patient, MedicalRecord, Staff, Resource, Alert, DashboardKPI, ResourceHistoryEntry, PatientHistoryEntry } from "@/types";
 
-const routeCollectionMap: Record<string, Array<"patients" | "records" | "staff" | "resources" | "alerts" | "resourceHistory">> = {
-  "/dashboard": ["patients", "resources", "staff", "alerts", "resourceHistory"],
-  "/patients": ["patients"],
+const routeCollectionMap: Record<string, Array<"patients" | "patientHistory" | "records" | "staff" | "resources" | "alerts" | "resourceHistory">> = {
+  "/dashboard": ["patients", "patientHistory", "resources", "staff", "alerts", "resourceHistory"],
+  "/patients": ["patients", "patientHistory"],
   "/records": ["records", "patients"],
-  "/analytics": ["patients", "resources", "resourceHistory"],
+  "/analytics": ["patients", "patientHistory", "resources", "resourceHistory"],
   "/resources": ["patients", "resources", "staff", "alerts", "resourceHistory"],
   "/infrastructure": ["patients", "resources", "staff", "resourceHistory"],
   "/staff": ["staff"],
-  "/settings": ["patients", "records", "staff", "resources", "alerts", "resourceHistory"],
+  "/settings": ["patients", "patientHistory", "records", "staff", "resources", "alerts", "resourceHistory"],
 };
 
 interface FirebaseContextType {
   // Data
   patients: Patient[];
+  patientHistory: PatientHistoryEntry[];
   records: MedicalRecord[];
   staff: Staff[];
   resources: Resource[];
@@ -38,6 +39,7 @@ interface FirebaseContextType {
   // Loading states
   loading: {
     patients: boolean;
+    patientHistory: boolean;
     records: boolean;
     staff: boolean;
     resources: boolean;
@@ -80,6 +82,7 @@ const FirebaseContext = createContext<FirebaseContextType | undefined>(undefined
 export function FirebaseProvider({ children }: { children: React.ReactNode }) {
   const location = useLocation();
   const [patients, setPatients] = useState<Patient[]>([]);
+  const [patientHistory, setPatientHistory] = useState<PatientHistoryEntry[]>([]);
   const [records, setRecords] = useState<MedicalRecord[]>([]);
   const [staff, setStaff] = useState<Staff[]>([]);
   const [resources, setResources] = useState<Resource[]>([]);
@@ -89,15 +92,17 @@ export function FirebaseProvider({ children }: { children: React.ReactNode }) {
   
   const [loading, setLoading] = useState({
     patients: true,
+    patientHistory: true,
     records: true,
     staff: true,
     resources: true,
     resourceHistory: true,
     alerts: true,
   });
-  const unsubscribersRef = React.useRef<Partial<Record<"patients" | "records" | "staff" | "resources" | "resourceHistory" | "alerts", () => void>>>({});
-  const startedRef = React.useRef<Record<"patients" | "records" | "staff" | "resources" | "resourceHistory" | "alerts", boolean>>({
+  const unsubscribersRef = React.useRef<Partial<Record<"patients" | "patientHistory" | "records" | "staff" | "resources" | "resourceHistory" | "alerts", () => void>>>({});
+  const startedRef = React.useRef<Record<"patients" | "patientHistory" | "records" | "staff" | "resources" | "resourceHistory" | "alerts", boolean>>({
     patients: false,
+    patientHistory: false,
     records: false,
     staff: false,
     resources: false,
@@ -106,7 +111,7 @@ export function FirebaseProvider({ children }: { children: React.ReactNode }) {
   });
 
   const enabledCollections = useMemo(
-    () => new Set(routeCollectionMap[location.pathname] || ["patients", "resources", "staff", "alerts", "resourceHistory"]),
+    () => new Set(routeCollectionMap[location.pathname] || ["patients", "patientHistory", "resources", "staff", "alerts", "resourceHistory"]),
     [location.pathname],
   );
 
@@ -127,6 +132,23 @@ export function FirebaseProvider({ children }: { children: React.ReactNode }) {
       setLoading((prev) => ({ ...prev, patients: false }));
     });
   }, [patients.length]);
+
+  const ensurePatientHistorySubscription = useCallback(() => {
+    if (startedRef.current.patientHistory) return;
+    startedRef.current.patientHistory = true;
+    setLoading((prev) => ({ ...prev, patientHistory: patientHistory.length === 0 }));
+
+    const patientHistoryQuery = query(collection(db, "patient_history"), orderBy("recordedAt", "desc"));
+    unsubscribersRef.current.patientHistory = onSnapshot(patientHistoryQuery, (snapshot) => {
+      const data = snapshot.docs.map((snapshotDoc) => ({
+        id: snapshotDoc.id,
+        ...snapshotDoc.data(),
+        recordedAt: snapshotDoc.data().recordedAt?.toDate(),
+      })) as PatientHistoryEntry[];
+      setPatientHistory(data);
+      setLoading((prev) => ({ ...prev, patientHistory: false }));
+    });
+  }, [patientHistory.length]);
 
   const ensureRecordsSubscription = useCallback(() => {
     if (startedRef.current.records) return;
@@ -230,8 +252,32 @@ export function FirebaseProvider({ children }: { children: React.ReactNode }) {
     [],
   );
 
+  const logPatientEvent = useCallback(
+    async (
+      patientId: string,
+      patient: Omit<Patient, "id" | "createdAt" | "updatedAt">,
+      source: PatientHistoryEntry["source"],
+      eventType: NonNullable<PatientHistoryEntry["eventType"]>,
+      eventDate: string,
+    ) => {
+      await addDoc(collection(db, "patient_history"), {
+        patientId,
+        name: patient.name,
+        diagnosis: patient.diagnosis,
+        status: patient.status,
+        eventType,
+        eventDate,
+        admissionDate: patient.date,
+        source,
+        recordedAt: Timestamp.now(),
+      });
+    },
+    [],
+  );
+
   useEffect(() => {
     if (enabledCollections.has("patients")) ensurePatientsSubscription();
+    if (enabledCollections.has("patientHistory")) ensurePatientHistorySubscription();
     if (enabledCollections.has("records")) ensureRecordsSubscription();
     if (enabledCollections.has("staff")) ensureStaffSubscription();
     if (enabledCollections.has("resources")) ensureResourcesSubscription();
@@ -240,6 +286,7 @@ export function FirebaseProvider({ children }: { children: React.ReactNode }) {
   }, [
     enabledCollections,
     ensureAlertsSubscription,
+    ensurePatientHistorySubscription,
     ensurePatientsSubscription,
     ensureRecordsSubscription,
     ensureResourceHistorySubscription,
@@ -278,19 +325,41 @@ export function FirebaseProvider({ children }: { children: React.ReactNode }) {
 
   // Patient operations
   const addPatient = useCallback(async (patient: Omit<Patient, "id" | "createdAt" | "updatedAt">) => {
-    await addDoc(collection(db, "patients"), {
+    const patientRef = await addDoc(collection(db, "patients"), {
       ...patient,
       createdAt: Timestamp.now(),
       updatedAt: Timestamp.now(),
     });
-  }, []);
+    await logPatientEvent(patientRef.id, patient, "manual", "admission", patient.date);
+  }, [logPatientEvent]);
 
   const updatePatient = useCallback(async (id: string, patient: Partial<Patient>) => {
+    const existingPatient = patients.find((item) => item.id === id);
+    const nextPatient = existingPatient
+      ? {
+          name: existingPatient.name,
+          age: existingPatient.age,
+          diagnosis: existingPatient.diagnosis,
+          date: existingPatient.date,
+          status: existingPatient.status,
+          ...patient,
+        }
+      : null;
+
     await updateDoc(doc(db, "patients", id), {
       ...patient,
       updatedAt: Timestamp.now(),
     });
-  }, []);
+
+    if (
+      existingPatient &&
+      nextPatient &&
+      existingPatient.status !== "Discharged" &&
+      nextPatient.status === "Discharged"
+    ) {
+      await logPatientEvent(id, nextPatient, "manual", "discharge", new Date().toISOString().split("T")[0]);
+    }
+  }, [logPatientEvent, patients]);
 
   const deletePatient = useCallback(async (id: string) => {
     await deleteDoc(doc(db, "patients", id));
@@ -379,15 +448,16 @@ export function FirebaseProvider({ children }: { children: React.ReactNode }) {
 
   // Bulk operations
   const bulkAddPatients = useCallback(async (patientsData: Omit<Patient, "id" | "createdAt" | "updatedAt">[]) => {
-    const batch = patientsData.map((patient) =>
-      addDoc(collection(db, "patients"), {
+    const batch = patientsData.map(async (patient) => {
+      const patientRef = await addDoc(collection(db, "patients"), {
         ...patient,
         createdAt: Timestamp.now(),
         updatedAt: Timestamp.now(),
-      })
-    );
+      });
+      await logPatientEvent(patientRef.id, patient, "import", "admission", patient.date);
+    });
     await Promise.all(batch);
-  }, []);
+  }, [logPatientEvent]);
 
   const bulkAddRecords = useCallback(async (recordsData: Omit<MedicalRecord, "id" | "createdAt" | "updatedAt">[]) => {
     const batch = recordsData.map((record) =>
@@ -424,6 +494,7 @@ export function FirebaseProvider({ children }: { children: React.ReactNode }) {
 
   const value: FirebaseContextType = {
     patients,
+    patientHistory,
     records,
     staff,
     resources,

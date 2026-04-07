@@ -3,8 +3,7 @@ import { Button } from "@/components/ui/button";
 import { Download, Loader2 } from "lucide-react";
 import {
   LineChart,
-  AreaChart,
-  Area,
+  Line,
   BarChart,
   Bar,
   XAxis,
@@ -19,7 +18,8 @@ import {
 import { useFirebase } from "@/contexts/FirebaseContext";
 import { exportAllToExcel } from "@/lib/excelUtils";
 import {
-  buildMonthlyAdmissions,
+  buildWeeklyCapacityTrend,
+  buildWeeklyPatientFlow,
   buildWeeklyOxygenTrend,
   calculateForecastMetrics,
   categorizeDiagnosis,
@@ -42,7 +42,7 @@ const chartTooltipStyle = {
 };
 
 export default function Analytics() {
-  const { patients, resources, resourceHistory, loading } = useFirebase();
+  const { patients, patientHistory, resources, resourceHistory, loading } = useFirebase();
 
   const diagnosisMap = new Map<string, number>();
   patients.forEach((patient) => {
@@ -55,7 +55,8 @@ export default function Analytics() {
     value,
   }));
 
-  const monthlyData = buildMonthlyAdmissions(patients);
+  const patientFlowData = buildWeeklyPatientFlow(patientHistory, patients);
+  const capacityTrend = buildWeeklyCapacityTrend(resourceHistory, resources);
   const oxygenTrend = buildWeeklyOxygenTrend(patients, resources, resourceHistory);
   const metrics = calculateForecastMetrics(patients, resources, []);
 
@@ -112,21 +113,21 @@ export default function Analytics() {
 
         <div className="grid lg:grid-cols-2 gap-5">
           <div className="bg-card border border-border rounded-lg p-5">
-            <h3 className="text-sm font-semibold mb-4">Admissions vs Discharges (6 Months)</h3>
-            {loading.patients ? (
+            <h3 className="text-sm font-semibold mb-4">Admissions vs Discharges (This Week)</h3>
+            {loading.patientHistory && loading.patients ? (
               <div className="flex items-center justify-center h-[250px]">
                 <Loader2 className="h-6 w-6 animate-spin text-muted-foreground" />
               </div>
             ) : (
               <ResponsiveContainer width="100%" height={250}>
-                <AreaChart data={monthlyData}>
+                <LineChart data={patientFlowData}>
                   <CartesianGrid strokeDasharray="3 3" stroke="hsl(var(--border))" />
-                  <XAxis dataKey="month" tick={{ fontSize: 12 }} stroke="hsl(var(--muted-foreground))" />
+                  <XAxis dataKey="day" tick={{ fontSize: 12 }} stroke="hsl(var(--muted-foreground))" />
                   <YAxis tick={{ fontSize: 12 }} stroke="hsl(var(--muted-foreground))" />
                   <Tooltip contentStyle={chartTooltipStyle} />
-                  <Area type="monotone" dataKey="admissions" stroke="hsl(var(--chart-1))" fill="hsl(var(--chart-1))" fillOpacity={0.15} strokeWidth={2} />
-                  <Area type="monotone" dataKey="discharges" stroke="hsl(var(--chart-2))" fill="hsl(var(--chart-2))" fillOpacity={0.1} strokeWidth={2} />
-                </AreaChart>
+                  <Line type="monotone" dataKey="admissions" stroke="hsl(var(--chart-1))" strokeWidth={2} dot={{ fill: "hsl(var(--chart-1))", r: 3 }} name="Admissions" />
+                  <Line type="monotone" dataKey="discharges" stroke="hsl(var(--chart-2))" strokeWidth={2} dot={{ fill: "hsl(var(--chart-2))", r: 3 }} name="Discharges" />
+                </LineChart>
               </ResponsiveContainer>
             )}
           </div>
@@ -174,25 +175,51 @@ export default function Analytics() {
           </div>
         </div>
 
-        <div className="bg-card border border-border rounded-lg p-5">
-          <h3 className="text-sm font-semibold mb-4">
-            {resourceHistory.length > 0 ? "Oxygen Usage Trend (Weekly)" : "Estimated Oxygen Demand Trend (Weekly)"}
-          </h3>
-          {loading.patients || loading.resources || loading.resourceHistory ? (
-            <div className="flex items-center justify-center h-[220px]">
-              <Loader2 className="h-6 w-6 animate-spin text-muted-foreground" />
-            </div>
-          ) : (
-            <ResponsiveContainer width="100%" height={220}>
-              <BarChart data={oxygenTrend}>
-                <CartesianGrid strokeDasharray="3 3" stroke="hsl(var(--border))" />
-                <XAxis dataKey="week" tick={{ fontSize: 12 }} stroke="hsl(var(--muted-foreground))" />
-                <YAxis tick={{ fontSize: 12 }} stroke="hsl(var(--muted-foreground))" />
-                <Tooltip contentStyle={chartTooltipStyle} />
-                <Bar dataKey="usage" fill="hsl(var(--chart-2))" radius={[4, 4, 0, 0]} />
-              </BarChart>
-            </ResponsiveContainer>
-          )}
+        <div className="grid lg:grid-cols-2 gap-5">
+          <div className="bg-card border border-border rounded-lg p-5">
+            <h3 className="text-sm font-semibold mb-4">Available Beds & Rooms (This Week)</h3>
+            {loading.resourceHistory && loading.resources ? (
+              <div className="flex items-center justify-center h-[220px]">
+                <Loader2 className="h-6 w-6 animate-spin text-muted-foreground" />
+              </div>
+            ) : capacityTrend.every((entry) => entry.bedsAvailable === 0 && entry.roomsAvailable === 0) ? (
+              <div className="flex items-center justify-center h-[220px] text-muted-foreground">
+                Add Beds and Rooms resources to show weekly availability.
+              </div>
+            ) : (
+              <ResponsiveContainer width="100%" height={220}>
+                <LineChart data={capacityTrend}>
+                  <CartesianGrid strokeDasharray="3 3" stroke="hsl(var(--border))" />
+                  <XAxis dataKey="day" tick={{ fontSize: 12 }} stroke="hsl(var(--muted-foreground))" />
+                  <YAxis tick={{ fontSize: 12 }} stroke="hsl(var(--muted-foreground))" />
+                  <Tooltip contentStyle={chartTooltipStyle} />
+                  <Line type="monotone" dataKey="bedsAvailable" stroke="hsl(var(--chart-3))" strokeWidth={2} dot={{ fill: "hsl(var(--chart-3))", r: 3 }} name="Beds Available" />
+                  <Line type="monotone" dataKey="roomsAvailable" stroke="hsl(var(--chart-4))" strokeWidth={2} dot={{ fill: "hsl(var(--chart-4))", r: 3 }} name="Rooms Available" />
+                </LineChart>
+              </ResponsiveContainer>
+            )}
+          </div>
+
+          <div className="bg-card border border-border rounded-lg p-5">
+            <h3 className="text-sm font-semibold mb-4">
+              {resourceHistory.length > 0 ? "Oxygen Usage Trend (Weekly)" : "Estimated Oxygen Demand Trend (Weekly)"}
+            </h3>
+            {loading.patients || loading.resources || loading.resourceHistory ? (
+              <div className="flex items-center justify-center h-[220px]">
+                <Loader2 className="h-6 w-6 animate-spin text-muted-foreground" />
+              </div>
+            ) : (
+              <ResponsiveContainer width="100%" height={220}>
+                <BarChart data={oxygenTrend}>
+                  <CartesianGrid strokeDasharray="3 3" stroke="hsl(var(--border))" />
+                  <XAxis dataKey="week" tick={{ fontSize: 12 }} stroke="hsl(var(--muted-foreground))" />
+                  <YAxis tick={{ fontSize: 12 }} stroke="hsl(var(--muted-foreground))" />
+                  <Tooltip contentStyle={chartTooltipStyle} />
+                  <Bar dataKey="usage" fill="hsl(var(--chart-2))" radius={[4, 4, 0, 0]} />
+                </BarChart>
+              </ResponsiveContainer>
+            )}
+          </div>
         </div>
       </div>
     </DashboardLayout>

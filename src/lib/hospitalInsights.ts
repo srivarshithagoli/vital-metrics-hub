@@ -1,4 +1,4 @@
-import { Alert, Patient, Resource, ResourceHistoryEntry, Staff } from "@/types";
+import { Alert, Patient, PatientHistoryEntry, Resource, ResourceHistoryEntry, Staff } from "@/types";
 
 type Severity = "warning" | "critical" | "info";
 
@@ -256,13 +256,185 @@ export function buildMonthlyAdmissions(patients: Patient[]) {
   return lastSixMonths;
 }
 
-export function buildWeeklyAdmissions(patients: Patient[]) {
-  const dailySeries = buildDailySeries(patients, 7);
-  const dayNames = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
+export function buildMonthlyPatientFlow(patientHistory: PatientHistoryEntry[], totalMonths = 6) {
+  const monthNames = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
+  const now = new Date();
+  const series = Array.from({ length: totalMonths }, (_, index) => {
+    const date = new Date(now.getFullYear(), now.getMonth() - (totalMonths - 1 - index), 1);
+    return {
+      key: `${date.getFullYear()}-${date.getMonth()}`,
+      month: monthNames[date.getMonth()],
+      admissions: 0,
+      discharges: 0,
+    };
+  });
 
-  return dailySeries.map((entry) => ({
-    day: dayNames[entry.date.getDay()],
+  const byKey = new Map(series.map((entry) => [entry.key, entry]));
+
+  patientHistory.forEach((entry) => {
+    const eventType = entry.eventType || "admission";
+    const dateValue = entry.eventDate || entry.admissionDate;
+    const parsedDate = parseDate(dateValue);
+    if (!parsedDate) return;
+
+    const key = `${parsedDate.getFullYear()}-${parsedDate.getMonth()}`;
+    const target = byKey.get(key);
+    if (!target) return;
+
+    if (eventType === "discharge") {
+      target.discharges += 1;
+    } else {
+      target.admissions += 1;
+    }
+  });
+
+  return series.map((entry) => ({
+    month: entry.month,
     admissions: entry.admissions,
+    discharges: entry.discharges,
+  }));
+}
+
+export function buildMonthlyCapacityTrend(resourceHistory: ResourceHistoryEntry[], totalMonths = 6) {
+  const monthNames = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
+  const now = new Date();
+  const series = Array.from({ length: totalMonths }, (_, index) => {
+    const date = new Date(now.getFullYear(), now.getMonth() - (totalMonths - 1 - index), 1);
+    return {
+      key: `${date.getFullYear()}-${date.getMonth()}`,
+      month: monthNames[date.getMonth()],
+      bedsAvailableTotal: 0,
+      bedsSamples: 0,
+      roomsAvailableTotal: 0,
+      roomsSamples: 0,
+    };
+  });
+
+  const byKey = new Map(series.map((entry) => [entry.key, entry]));
+
+  resourceHistory.forEach((entry) => {
+    const parsedDate = parseDate(entry.recordedAt);
+    if (!parsedDate) return;
+
+    const key = `${parsedDate.getFullYear()}-${parsedDate.getMonth()}`;
+    const target = byKey.get(key);
+    if (!target) return;
+
+    const normalizedName = String(entry.name || "").toLowerCase();
+    if (normalizedName === "beds") {
+      target.bedsAvailableTotal += entry.available;
+      target.bedsSamples += 1;
+    }
+    if (normalizedName === "rooms") {
+      target.roomsAvailableTotal += entry.available;
+      target.roomsSamples += 1;
+    }
+  });
+
+  return series.map((entry) => ({
+    month: entry.month,
+    bedsAvailable: entry.bedsSamples ? Math.round(entry.bedsAvailableTotal / entry.bedsSamples) : 0,
+    roomsAvailable: entry.roomsSamples ? Math.round(entry.roomsAvailableTotal / entry.roomsSamples) : 0,
+  }));
+}
+
+export function buildWeeklyPatientFlow(patientHistory: PatientHistoryEntry[], patients: Patient[] = []) {
+  const today = startOfDay(new Date());
+  const start = new Date(today);
+  start.setDate(start.getDate() - 6);
+
+  const series = Array.from({ length: 7 }, (_, index) => {
+    const date = new Date(start);
+    date.setDate(start.getDate() + index);
+    return {
+      key: date.toISOString().slice(0, 10),
+      day: ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"][date.getDay()],
+      admissions: 0,
+      discharges: 0,
+    };
+  });
+
+  const byKey = new Map(series.map((entry) => [entry.key, entry]));
+
+  if (patientHistory.length > 0) {
+    patientHistory.forEach((entry) => {
+      const eventType = entry.eventType || "admission";
+      const dateValue = entry.eventDate || entry.admissionDate;
+      const key = dateValue;
+      const target = byKey.get(key);
+      if (!target) return;
+
+      if (eventType === "discharge") {
+        target.discharges += 1;
+      } else {
+        target.admissions += 1;
+      }
+    });
+  } else {
+    const dailySeries = buildDailySeries(patients, 7);
+    dailySeries.forEach((entry) => {
+      const target = byKey.get(entry.key);
+      if (!target) return;
+      target.admissions = entry.admissions;
+      target.discharges = entry.discharges;
+    });
+  }
+
+  return series.map(({ day, admissions, discharges }) => ({
+    day,
+    admissions,
+    discharges,
+  }));
+}
+
+export function buildWeeklyCapacityTrend(resourceHistory: ResourceHistoryEntry[], resources: Resource[]) {
+  const today = startOfDay(new Date());
+  const start = new Date(today);
+  start.setDate(start.getDate() - 6);
+
+  const series = Array.from({ length: 7 }, (_, index) => {
+    const date = new Date(start);
+    date.setDate(start.getDate() + index);
+    return {
+      key: date.toISOString().slice(0, 10),
+      day: ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"][date.getDay()],
+      bedsAvailableTotal: 0,
+      bedsSamples: 0,
+      roomsAvailableTotal: 0,
+      roomsSamples: 0,
+    };
+  });
+
+  const byKey = new Map(series.map((entry) => [entry.key, entry]));
+
+  if (resourceHistory.length > 0) {
+    resourceHistory.forEach((entry) => {
+      const recordedAt = parseDate(entry.recordedAt);
+      if (!recordedAt) return;
+
+      const key = startOfDay(recordedAt).toISOString().slice(0, 10);
+      const target = byKey.get(key);
+      if (!target) return;
+
+      const normalizedName = String(entry.name || "").toLowerCase();
+      if (normalizedName === "beds") {
+        target.bedsAvailableTotal += entry.available;
+        target.bedsSamples += 1;
+      }
+      if (normalizedName === "rooms") {
+        target.roomsAvailableTotal += entry.available;
+        target.roomsSamples += 1;
+      }
+    });
+  }
+
+  const currentBeds = getResourceByName(resources, ["beds"]);
+  const currentRooms = getResourceByName(resources, ["rooms"]);
+
+  return series.map((entry) => ({
+    day: entry.day,
+    bedsAvailable: entry.bedsSamples ? Math.round(entry.bedsAvailableTotal / entry.bedsSamples) : Math.max((currentBeds?.total || 0) - (currentBeds?.used || 0), 0),
+    roomsAvailable: entry.roomsSamples ? Math.round(entry.roomsAvailableTotal / entry.roomsSamples) : Math.max((currentRooms?.total || 0) - (currentRooms?.used || 0), 0),
   }));
 }
 

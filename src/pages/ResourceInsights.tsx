@@ -5,6 +5,13 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
+import {
   Dialog,
   DialogContent,
   DialogDescription,
@@ -37,6 +44,8 @@ const severityIcon = {
 
 type ResourceFormData = {
   name: string;
+  category: string;
+  customName: string;
   used: string;
   total: string;
   unit: string;
@@ -48,17 +57,67 @@ type ResourceFormProps = {
 };
 
 function ResourceForm({ formData, setFormData }: ResourceFormProps) {
+  const showCustomName = formData.category === "Medicines" || formData.category === "Equipment" || formData.category === "Other";
+
   return (
     <div className="grid gap-4 py-4">
       <div className="grid grid-cols-4 items-center gap-4">
         <Label htmlFor="resource-name" className="text-right">Name *</Label>
-        <Input
-          id="resource-name"
-          value={formData.name}
-          onChange={(event) => setFormData((current) => ({ ...current, name: event.target.value }))}
-          className="col-span-3"
-          placeholder="Beds, ICU, Oxygen Cylinders..."
-        />
+        <div className="col-span-3 space-y-3">
+          <Select
+            value={formData.category}
+            onValueChange={(value) =>
+              setFormData((current) => ({
+                ...current,
+                category: value,
+                name: value === "Beds" ? "Beds" :
+                  value === "Oxygen Cylinders" ? "Oxygen Cylinders" :
+                  value === "Rooms" ? "Rooms" :
+                  value === "ICU Units" ? "ICU" :
+                  value === "Medicines" || value === "Equipment" || value === "Other" ? current.name : value,
+                unit:
+                  value === "Beds" ? "beds" :
+                  value === "Oxygen Cylinders" ? "cylinders" :
+                  value === "Rooms" ? "rooms" :
+                  value === "ICU Units" ? "units" :
+                  current.unit,
+              }))
+            }
+          >
+            <SelectTrigger>
+              <SelectValue placeholder="Select a resource type" />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="Beds">Beds</SelectItem>
+              <SelectItem value="Oxygen Cylinders">Oxygen Cylinders</SelectItem>
+              <SelectItem value="Rooms">Rooms</SelectItem>
+              <SelectItem value="ICU Units">ICU Units</SelectItem>
+              <SelectItem value="Medicines">Medicines</SelectItem>
+              <SelectItem value="Equipment">Equipment</SelectItem>
+              <SelectItem value="Other">Other Resource</SelectItem>
+            </SelectContent>
+          </Select>
+          {showCustomName ? (
+            <Input
+              id="resource-name"
+              value={formData.customName}
+              onChange={(event) =>
+                setFormData((current) => ({
+                  ...current,
+                  customName: event.target.value,
+                  name: current.category === "Other" ? event.target.value : `${current.category} - ${event.target.value}`,
+                }))
+              }
+              placeholder={
+                formData.category === "Medicines"
+                  ? "Medicine name"
+                  : formData.category === "Equipment"
+                    ? "Equipment name"
+                    : "Resource name"
+              }
+            />
+          ) : null}
+        </div>
       </div>
       <div className="grid grid-cols-4 items-center gap-4">
         <Label htmlFor="resource-used" className="text-right">Used *</Label>
@@ -108,6 +167,8 @@ export default function ResourceInsights() {
   const fileInputRef = useRef<HTMLInputElement>(null);
   const [formData, setFormData] = useState<ResourceFormData>({
     name: "",
+    category: "",
+    customName: "",
     used: "",
     total: "",
     unit: "",
@@ -189,6 +250,8 @@ export default function ResourceInsights() {
   const resetForm = () => {
     setFormData({
       name: "",
+      category: "",
+      customName: "",
       used: "",
       total: "",
       unit: "",
@@ -199,7 +262,8 @@ export default function ResourceInsights() {
     const used = Number(formData.used);
     const total = Number(formData.total);
 
-    if (!formData.name.trim()) {
+    const finalName = (formData.name || "").trim();
+    if (!finalName) {
       toast.error("Resource name is required");
       return null;
     }
@@ -220,7 +284,7 @@ export default function ResourceInsights() {
     }
 
     return {
-      name: formData.name.trim(),
+      name: finalName,
       used,
       total,
       unit: formData.unit.trim() || "units",
@@ -263,6 +327,21 @@ export default function ResourceInsights() {
     setEditingResource(resource);
     setFormData({
       name: resource.name,
+      category:
+        resource.name === "Beds" ? "Beds" :
+        resource.name === "Oxygen Cylinders" ? "Oxygen Cylinders" :
+        resource.name === "Rooms" ? "Rooms" :
+        resource.name === "ICU Units" || resource.name === "ICU" ? "ICU Units" :
+        resource.name.startsWith("Medicines - ") ? "Medicines" :
+        resource.name.startsWith("Equipment - ") ? "Equipment" : "Other",
+      customName:
+        resource.name.startsWith("Medicines - ")
+          ? resource.name.replace("Medicines - ", "")
+          : resource.name.startsWith("Equipment - ")
+            ? resource.name.replace("Equipment - ", "")
+            : ["Beds", "Oxygen Cylinders", "Rooms", "ICU Units", "ICU"].includes(resource.name)
+              ? ""
+              : resource.name,
       used: resource.used.toString(),
       total: resource.total.toString(),
       unit: resource.unit || "",

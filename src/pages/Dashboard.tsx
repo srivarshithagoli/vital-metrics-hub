@@ -1,13 +1,10 @@
 import { DashboardLayout } from "@/components/DashboardLayout";
 import { AdminAssistantPanel } from "@/components/AdminAssistantPanel";
 import { KPICard } from "@/components/KPICard";
-import { AlertPanel } from "@/components/AlertPanel";
 import { Users, BedDouble, HeartPulse, Wind, Stethoscope, Loader2, Download } from "lucide-react";
 import {
   LineChart,
   Line,
-  BarChart,
-  Bar,
   XAxis,
   YAxis,
   CartesianGrid,
@@ -17,19 +14,19 @@ import {
 import { Button } from "@/components/ui/button";
 import { useFirebase } from "@/contexts/FirebaseContext";
 import { exportAllToExcel } from "@/lib/excelUtils";
-import { buildWeeklyAdmissions, calculateForecastMetrics, getResourceByName } from "@/lib/hospitalInsights";
+import {
+  buildWeeklyCapacityTrend,
+  buildWeeklyPatientFlow,
+  calculateForecastMetrics,
+  getResourceByName,
+} from "@/lib/hospitalInsights";
 import { toast } from "sonner";
 
 export default function Dashboard() {
-  const { patients, resources, staff, loading } = useFirebase();
-  const admissionData = buildWeeklyAdmissions(patients);
+  const { patients, patientHistory, resources, resourceHistory, staff, loading } = useFirebase();
+  const patientFlowData = buildWeeklyPatientFlow(patientHistory, patients);
+  const capacityTrendData = buildWeeklyCapacityTrend(resourceHistory, resources);
   const metrics = calculateForecastMetrics(patients, resources, staff);
-
-  const resourceData = resources.map((resource) => ({
-    name: resource.name,
-    used: resource.used,
-    total: resource.total,
-  }));
 
   const bedResource = getResourceByName(resources, ["beds"]);
   const icuResource = getResourceByName(resources, ["icu"]);
@@ -103,14 +100,14 @@ export default function Dashboard() {
 
         <div className="grid lg:grid-cols-2 gap-5">
           <div className="bg-card border border-border rounded-lg p-5">
-            <h3 className="text-sm font-semibold mb-4">Patient Admissions (This Week)</h3>
-            {loading.patients ? (
+            <h3 className="text-sm font-semibold mb-4">Admissions & Discharges (This Week)</h3>
+            {loading.patientHistory && loading.patients ? (
               <div className="flex items-center justify-center h-[240px]">
                 <Loader2 className="h-6 w-6 animate-spin text-muted-foreground" />
               </div>
             ) : (
               <ResponsiveContainer width="100%" height={240}>
-                <LineChart data={admissionData}>
+                <LineChart data={patientFlowData}>
                   <CartesianGrid strokeDasharray="3 3" stroke="hsl(var(--border))" />
                   <XAxis dataKey="day" tick={{ fontSize: 12 }} stroke="hsl(var(--muted-foreground))" />
                   <YAxis tick={{ fontSize: 12 }} stroke="hsl(var(--muted-foreground))" />
@@ -128,6 +125,15 @@ export default function Dashboard() {
                     stroke="hsl(var(--primary))"
                     strokeWidth={2}
                     dot={{ fill: "hsl(var(--primary))", r: 3 }}
+                    name="Admissions"
+                  />
+                  <Line
+                    type="monotone"
+                    dataKey="discharges"
+                    stroke="hsl(var(--chart-2))"
+                    strokeWidth={2}
+                    dot={{ fill: "hsl(var(--chart-2))", r: 3 }}
+                    name="Discharges"
                   />
                 </LineChart>
               </ResponsiveContainer>
@@ -135,20 +141,20 @@ export default function Dashboard() {
           </div>
 
           <div className="bg-card border border-border rounded-lg p-5">
-            <h3 className="text-sm font-semibold mb-4">Resource Utilization</h3>
-            {loading.resources ? (
+            <h3 className="text-sm font-semibold mb-4">Available Beds & Rooms (This Week)</h3>
+            {loading.resourceHistory && loading.resources ? (
               <div className="flex items-center justify-center h-[240px]">
                 <Loader2 className="h-6 w-6 animate-spin text-muted-foreground" />
               </div>
-            ) : resources.length === 0 ? (
+            ) : capacityTrendData.every((entry) => entry.bedsAvailable === 0 && entry.roomsAvailable === 0) ? (
               <div className="flex items-center justify-center h-[240px] text-muted-foreground">
-                No resource data available
+                Add Beds and Rooms resources to show weekly availability.
               </div>
             ) : (
               <ResponsiveContainer width="100%" height={240}>
-                <BarChart data={resourceData}>
+                <LineChart data={capacityTrendData}>
                   <CartesianGrid strokeDasharray="3 3" stroke="hsl(var(--border))" />
-                  <XAxis dataKey="name" tick={{ fontSize: 11 }} stroke="hsl(var(--muted-foreground))" />
+                  <XAxis dataKey="day" tick={{ fontSize: 11 }} stroke="hsl(var(--muted-foreground))" />
                   <YAxis tick={{ fontSize: 12 }} stroke="hsl(var(--muted-foreground))" />
                   <Tooltip
                     contentStyle={{
@@ -158,16 +164,29 @@ export default function Dashboard() {
                       fontSize: "12px",
                     }}
                   />
-                  <Bar dataKey="used" fill="hsl(var(--primary))" radius={[4, 4, 0, 0]} name="Used" />
-                  <Bar dataKey="total" fill="hsl(var(--secondary))" radius={[4, 4, 0, 0]} name="Total" />
-                </BarChart>
+                  <Line
+                    type="monotone"
+                    dataKey="bedsAvailable"
+                    stroke="hsl(var(--chart-3))"
+                    strokeWidth={2}
+                    dot={{ fill: "hsl(var(--chart-3))", r: 3 }}
+                    name="Beds Available"
+                  />
+                  <Line
+                    type="monotone"
+                    dataKey="roomsAvailable"
+                    stroke="hsl(var(--chart-4))"
+                    strokeWidth={2}
+                    dot={{ fill: "hsl(var(--chart-4))", r: 3 }}
+                    name="Rooms Available"
+                  />
+                </LineChart>
               </ResponsiveContainer>
             )}
           </div>
         </div>
 
         <AdminAssistantPanel compact />
-        <AlertPanel />
       </div>
     </DashboardLayout>
   );

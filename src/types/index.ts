@@ -56,6 +56,19 @@ export interface Resource {
   updatedAt?: Date;
 }
 
+export interface PatientHistoryEntry {
+  id: string;
+  patientId: string;
+  name: string;
+  diagnosis: string;
+  status: Patient["status"];
+  eventType?: "admission" | "discharge";
+  eventDate?: string;
+  admissionDate: string;
+  source: "manual" | "import";
+  recordedAt?: Date;
+}
+
 export interface ResourceHistoryEntry {
   id: string;
   resourceId: string;
