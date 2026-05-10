@@ -1,4 +1,7 @@
 import { Alert, Patient, Resource, Staff } from "@/types";
+import { askAdminQuestion } from "@/lib/adminRag";
+import { calculateForecastMetrics, generateOperationalAlerts } from "@/lib/hospitalInsights";
+import { isGeminiConfigured, missingGeminiEnvKeys } from "@/lib/gemini";
 
 type HospitalDataPayload = {
   patients: Patient[];
@@ -40,14 +43,11 @@ export type AdminAssistantResult = {
 };
 
 export async function getAdminAssistantHealth() {
-  const response = await fetch("/api/health");
-  const data = await response.json();
-
-  if (!response.ok) {
-    throw new Error(data.error || "Failed to reach the RAG server.");
-  }
-
-  return data as { ok: boolean; ready: boolean; missing: string[] };
+  return {
+    ok: true,
+    ready: isGeminiConfigured,
+    missing: missingGeminiEnvKeys,
+  };
 }
 
 export async function askAdminAssistant(
@@ -55,24 +55,41 @@ export async function askAdminAssistant(
   hospitalData: HospitalDataPayload,
   history: Array<{ role: "user" | "assistant"; content: string }> = [],
 ) {
-  const response = await fetch("/api/ask-admin", {
-    method: "POST",
-    headers: {
-      "Content-Type": "application/json",
+  const metrics = calculateForecastMetrics(hospitalData.patients, hospitalData.resources, hospitalData.staff);
+  const generatedAlerts = generateOperationalAlerts(
+    hospitalData.patients,
+    hospitalData.resources,
+    hospitalData.staff,
+    hospitalData.alerts,
+  )
+    .filter((alert) => alert.source === "generated")
+    .map((alert) => ({
+      severity: alert.type,
+      title: alert.title,
+      message: alert.message,
+    }));
+
+  const result = await askAdminQuestion(question, hospitalData, history);
+
+  return {
+    answer: result.answer,
+    predictions: {
+      metrics: {
+        currentBedUtilization: metrics.bedUtilization,
+        currentIcuUtilization: metrics.icuUtilization,
+        currentOxygenUtilization: metrics.oxygenUtilization,
+        projectedAdmissionsNext7: metrics.projectedAdmissionsNext7,
+        projectedRespiratoryNext7: metrics.projectedRespiratoryNext7,
+        projectedBedDemand: metrics.projectedBedDemand,
+        projectedIcuDemand: metrics.projectedIcuDemand,
+        projectedOxygenDemand: metrics.projectedOxygenDemand,
+        admissionsGrowthPct: metrics.admissionsGrowthPct,
+        respiratoryGrowthPct: metrics.respiratoryGrowthPct,
+        openAlerts: hospitalData.alerts.filter((alert) => !alert.acknowledged).length,
+        activePatients: metrics.activePatients,
+      },
+      generatedAlerts,
     },
-    body: JSON.stringify({
-      question,
-      hospitalData,
-      history,
-    }),
-  });
-
-  const data = await response.json();
-
-  if (!response.ok) {
-    const detail = data.missing?.length ? ` Missing: ${data.missing.join(", ")}.` : "";
-    throw new Error((data.error || "Failed to generate the admin recommendation.") + detail);
-  }
-
-  return data as AdminAssistantResult;
+    sources: result.sources,
+  } satisfies AdminAssistantResult;
 }

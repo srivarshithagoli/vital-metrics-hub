@@ -258,7 +258,11 @@ async function retrieveRelevantDocuments(question: string, input: AdminRagInput,
   return ranked.sort((left, right) => right.score - left.score).slice(0, topK);
 }
 
-export async function askAdminQuestion(question: string, input: AdminRagInput): Promise<AdminRagResponse> {
+export async function askAdminQuestion(
+  question: string,
+  input: AdminRagInput,
+  history: Array<{ role: "user" | "assistant"; content: string }> = [],
+): Promise<AdminRagResponse> {
   if (!isGeminiConfigured) {
     throw new Error("Gemini is not configured. Add VITE_GEMINI_API_KEY to your root .env file.");
   }
@@ -274,6 +278,10 @@ export async function askAdminQuestion(question: string, input: AdminRagInput): 
   const contextBlock = sources
     .map((document, index) => `Source ${index + 1}: ${document.title}\n${document.text}`)
     .join("\n\n");
+  const historyBlock = history
+    .slice(-8)
+    .map((message) => `${message.role === "user" ? "User" : "Assistant"}: ${message.content}`)
+    .join("\n");
 
   const ai = getGeminiClient();
   const response = await ai.models.generateContent({
@@ -287,8 +295,11 @@ export async function askAdminQuestion(question: string, input: AdminRagInput): 
         "Answer in three short sections exactly titled Summary, Why, and Recommendations.",
         "Keep the answer concise and practical for an admin user.",
         `Question: ${trimmedQuestion}`,
+        historyBlock ? `Recent conversation:\n${historyBlock}` : "",
         `Retrieved context:\n${contextBlock}`,
-      ].join("\n\n"),
+      ]
+        .filter(Boolean)
+        .join("\n\n"),
     ],
   });
 

@@ -22,6 +22,7 @@ type ForecastMetrics = {
   icuUtilization: number;
   oxygenUtilization: number;
   projectedAdmissionsNext7: number;
+  projectedRespiratoryNext7: number;
   projectedBedDemand: number;
   projectedIcuDemand: number;
   projectedOxygenDemand: number;
@@ -467,6 +468,7 @@ export function calculateForecastMetrics(patients: Patient[], resources: Resourc
     icuUtilization: getUtilization(icu),
     oxygenUtilization: getUtilization(oxygen),
     projectedAdmissionsNext7,
+    projectedRespiratoryNext7,
     projectedBedDemand,
     projectedIcuDemand,
     projectedOxygenDemand,

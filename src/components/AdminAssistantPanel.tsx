@@ -43,8 +43,8 @@ export function AdminAssistantPanel({ compact = false }: AdminAssistantPanelProp
     openAlerts: number;
     activePatients: number;
   }>(null);
-  const [serverReady, setServerReady] = useState<boolean | null>(null);
-  const [missingServerKeys, setMissingServerKeys] = useState<string[]>([]);
+  const [assistantReady, setAssistantReady] = useState<boolean | null>(null);
+  const [missingAssistantKeys, setMissingAssistantKeys] = useState<string[]>([]);
   const [isGenerating, setIsGenerating] = useState(false);
 
   const exampleQuestions = useMemo(
@@ -62,15 +62,15 @@ export function AdminAssistantPanel({ compact = false }: AdminAssistantPanelProp
     [alerts, patients, resources, staff],
   );
 
-  const checkServerHealth = useCallback(async () => {
+  const checkAssistantHealth = useCallback(async () => {
     try {
       const status = await getAdminAssistantHealth();
-      setServerReady(status.ready);
-      setMissingServerKeys(status.missing || []);
+      setAssistantReady(status.ready);
+      setMissingAssistantKeys(status.missing || []);
       return status.ready;
     } catch (error) {
-      console.error("Failed to check RAG server health:", error);
-      setServerReady(false);
+      console.error("Failed to check AI assistant configuration:", error);
+      setAssistantReady(false);
       return false;
     }
   }, []);
@@ -82,32 +82,30 @@ export function AdminAssistantPanel({ compact = false }: AdminAssistantPanelProp
       try {
         const status = await getAdminAssistantHealth();
         if (!active) return;
-        setServerReady(status.ready);
-        setMissingServerKeys(status.missing || []);
+        setAssistantReady(status.ready);
+        setMissingAssistantKeys(status.missing || []);
       } catch (error) {
         if (!active) return;
-        console.error("Failed to check RAG server health:", error);
-        setServerReady(false);
+        console.error("Failed to check AI assistant configuration:", error);
+        setAssistantReady(false);
       }
     };
 
     runCheck();
-    const intervalId = window.setInterval(runCheck, 10000);
 
     return () => {
       active = false;
-      window.clearInterval(intervalId);
     };
   }, []);
 
   const sendMessage = useCallback(
     async (nextQuestion?: string, silent = false) => {
       const finalQuestion = (nextQuestion ?? question).trim();
-      const ready = await checkServerHealth();
+      const ready = await checkAssistantHealth();
 
       if (!ready) {
         if (!silent) {
-          toast.error("The backend AI service is still unavailable. Make sure `npm run server:dev` is running.");
+          toast.error("The AI assistant is not configured. Add VITE_GEMINI_API_KEY to your .env file.");
         }
         return;
       }
@@ -146,8 +144,8 @@ export function AdminAssistantPanel({ compact = false }: AdminAssistantPanelProp
         setSources(result.sources.map((source) => ({ id: source.id, title: source.title, score: source.score })));
         setPredictionAlerts(result.predictions.generatedAlerts);
         setMetrics(result.predictions.metrics);
-        setServerReady(true);
-        setMissingServerKeys([]);
+        setAssistantReady(true);
+        setMissingAssistantKeys([]);
         setMessages((current) => [
           ...current,
           {
@@ -165,7 +163,7 @@ export function AdminAssistantPanel({ compact = false }: AdminAssistantPanelProp
         setIsGenerating(false);
       }
     },
-    [alerts, checkServerHealth, messages, patients, question, resources, staff],
+    [alerts, checkAssistantHealth, messages, patients, question, resources, staff],
   );
 
   const metricCards = metrics
@@ -186,7 +184,7 @@ export function AdminAssistantPanel({ compact = false }: AdminAssistantPanelProp
             <h3 className="text-sm font-semibold">AI Recommendations & Alerts</h3>
           </div>
           <p className="text-xs text-muted-foreground mt-1">
-            Pinecone-backed RAG over live operational data with short-term resource predictions.
+            Browser-side Gemini RAG over live operational data with short-term resource predictions.
           </p>
         </div>
         <Button variant="outline" size="sm" onClick={() => sendMessage(exampleQuestions[0])} disabled={isGenerating} className="gap-2">
@@ -195,10 +193,10 @@ export function AdminAssistantPanel({ compact = false }: AdminAssistantPanelProp
         </Button>
       </div>
 
-      {serverReady === false && (
+      {assistantReady === false && (
         <div className="rounded-md border border-warning/30 bg-warning/10 p-3 text-xs text-muted-foreground">
-          The backend AI service is not ready yet.
-          {missingServerKeys.length ? ` Missing server keys: ${missingServerKeys.join(", ")}.` : " Start the backend with `npm run server:dev`."}
+          The AI assistant is not ready yet.
+          {missingAssistantKeys.length ? ` Missing keys: ${missingAssistantKeys.join(", ")}.` : " Check your Vite environment settings."}
         </div>
       )}
 

@@ -122,12 +122,11 @@ export default function SettingsPage() {
             </div>
             <div className="flex-1">
               <p className="text-sm font-medium">
-                AI Backend Setup
+                AI Assistant Setup
               </p>
               <p className="text-xs text-muted-foreground mt-1">
-                The new RAG assistant now runs from the backend. Add <code>GEMINI_API_KEY</code>,
-                <code> PINECONE_API_KEY</code>, and <code>PINECONE_INDEX_HOST</code> to your root
-                <code> .env</code>, then run <code>npm run server:dev</code>.
+                The RAG assistant now runs in the React app. Add <code>VITE_GEMINI_API_KEY</code> to your root
+                <code> .env</code>, then run <code>npm run dev</code>.
               </p>
             </div>
           </div>
