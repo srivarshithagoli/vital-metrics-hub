@@ -295,13 +295,23 @@ export default function ResourceInsights() {
     const payload = validateResourceForm();
     if (!payload) return;
 
+    // Check if resource already exists to avoid duplicates
+    const existingResource = resources.find(
+      (r) => r.name.toLowerCase() === payload.name.toLowerCase()
+    );
+
     try {
-      await addResource(payload);
-      toast.success("Resource added successfully");
+      if (existingResource) {
+        await updateResource(existingResource.id, payload);
+        toast.success("Resource updated successfully");
+      } else {
+        await addResource(payload);
+        toast.success("Resource added successfully");
+      }
       setIsAddDialogOpen(false);
       resetForm();
     } catch (error) {
-      toast.error("Failed to add resource");
+      toast.error(existingResource ? "Failed to update resource" : "Failed to add resource");
       console.error(error);
     }
   };
