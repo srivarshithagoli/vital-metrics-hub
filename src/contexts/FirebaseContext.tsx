@@ -66,7 +66,7 @@ interface FirebaseContextType {
   deleteStaff: (id: string) => Promise<void>;
   
   // Resource operations
-  addResource: (resource: Omit<Resource, "id" | "updatedAt">) => Promise<void>;
+  addResource: (resource: Omit<Resource, "id" | "updatedAt">) => Promise<"created" | "updated">;
   updateResource: (id: string, resource: Partial<Resource>) => Promise<void>;
   deleteResource: (id: string) => Promise<void>;
   
@@ -77,10 +77,30 @@ interface FirebaseContextType {
   bulkAddPatients: (patients: Omit<Patient, "id" | "createdAt" | "updatedAt">[]) => Promise<void>;
   bulkAddRecords: (records: Omit<MedicalRecord, "id" | "createdAt" | "updatedAt">[]) => Promise<void>;
   bulkAddStaff: (staff: Omit<Staff, "id" | "createdAt" | "updatedAt">[]) => Promise<void>;
-  bulkAddResources: (resources: Omit<Resource, "id" | "updatedAt">[]) => Promise<void>;
+  bulkAddResources: (resources: Omit<Resource, "id" | "updatedAt">[]) => Promise<{ created: number; updated: number }>;
 }
 
 const FirebaseContext = createContext<FirebaseContextType | undefined>(undefined);
+
+type ResourceInput = Omit<Resource, "id" | "updatedAt">;
+
+const normalizeResourceName = (name: string) =>
+  name
+    .trim()
+    .toLowerCase()
+    .replace(/\s+/g, " ")
+    .replace(/o₂|oâ‚‚|oã¢â€šâ€š/g, "oxygen")
+    .replace(/^icu units$/, "icu");
+
+const findMatchingResource = (resourceList: Resource[], name: string) =>
+  resourceList.find((resource) => normalizeResourceName(resource.name) === normalizeResourceName(name));
+
+const mergeResourceQuantities = (existingResource: Resource, addedResource: ResourceInput): ResourceInput => ({
+  name: existingResource.name || addedResource.name,
+  used: existingResource.used + addedResource.used,
+  total: existingResource.total + addedResource.total,
+  unit: existingResource.unit || addedResource.unit || "units",
+});
 
 export function FirebaseProvider({ children }: { children: React.ReactNode }) {
   const location = useLocation();
@@ -311,6 +331,17 @@ export function FirebaseProvider({ children }: { children: React.ReactNode }) {
       });
     },
     [],
+  );
+
+  const tryLogResourceHistory = useCallback(
+    async (resourceId: string, resource: ResourceInput, changeType: ResourceHistoryEntry["changeType"]) => {
+      try {
+        await logResourceHistory(resourceId, resource, changeType);
+      } catch (error) {
+        console.error("Resource history logging failed:", error);
+      }
+    },
+    [logResourceHistory],
   );
 
   const logPatientEvent = useCallback(
@@ -708,13 +739,27 @@ export function FirebaseProvider({ children }: { children: React.ReactNode }) {
     await logResourceHistory(id, nextResource, "updated");
   }, [logResourceHistory, resources]);
 
-  const addResource = useCallback(async (resource: Omit<Resource, "id" | "updatedAt">) => {
+  const addResource = useCallback(async (resource: ResourceInput) => {
+    const existingResource = findMatchingResource(resources, resource.name);
+
+    if (existingResource) {
+      const mergedResource = mergeResourceQuantities(existingResource, resource);
+
+      await updateDoc(doc(db, "resources", existingResource.id), {
+        ...mergedResource,
+        updatedAt: Timestamp.now(),
+      });
+      await tryLogResourceHistory(existingResource.id, mergedResource, "updated");
+      return "updated";
+    }
+
     const resourceRef = await addDoc(collection(db, "resources"), {
       ...resource,
       updatedAt: Timestamp.now(),
     });
-    await logResourceHistory(resourceRef.id, resource, "created");
-  }, [logResourceHistory]);
+    await tryLogResourceHistory(resourceRef.id, resource, "created");
+    return "created";
+  }, [resources, tryLogResourceHistory]);
 
   const deleteResource = useCallback(async (id: string) => {
     const existingResource = resources.find((item) => item.id === id);
@@ -783,16 +828,38 @@ export function FirebaseProvider({ children }: { children: React.ReactNode }) {
     await Promise.all(batch);
   }, []);
 
-  const bulkAddResources = useCallback(async (resourcesData: Omit<Resource, "id" | "updatedAt">[]) => {
-    const batch = resourcesData.map(async (resource) => {
+  const bulkAddResources = useCallback(async (resourcesData: ResourceInput[]) => {
+    const workingResources = [...resources];
+    let created = 0;
+    let updated = 0;
+
+    for (const resource of resourcesData) {
+      const existingResource = findMatchingResource(workingResources, resource.name);
+
+      if (existingResource) {
+        const mergedResource = mergeResourceQuantities(existingResource, resource);
+
+        await updateDoc(doc(db, "resources", existingResource.id), {
+          ...mergedResource,
+          updatedAt: Timestamp.now(),
+        });
+        await tryLogResourceHistory(existingResource.id, mergedResource, "imported");
+        Object.assign(existingResource, mergedResource);
+        updated += 1;
+        continue;
+      }
+
       const resourceRef = await addDoc(collection(db, "resources"), {
         ...resource,
         updatedAt: Timestamp.now(),
       });
-      await logResourceHistory(resourceRef.id, resource, "imported");
-    });
-    await Promise.all(batch);
-  }, [logResourceHistory]);
+      await tryLogResourceHistory(resourceRef.id, resource, "imported");
+      workingResources.push({ ...resource, id: resourceRef.id });
+      created += 1;
+    }
+
+    return { created, updated };
+  }, [resources, tryLogResourceHistory]);
 
   const value: FirebaseContextType = {
     patients,

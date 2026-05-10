@@ -49,6 +49,10 @@ function startOfWeek(date: Date) {
   return next;
 }
 
+function formatDateKey(date: Date) {
+  return startOfDay(date).toISOString().slice(0, 10);
+}
+
 function formatWeekLabel(date: Date) {
   const month = date.toLocaleString("en-US", { month: "short" });
   return `${month} ${date.getDate()}`;
@@ -104,7 +108,7 @@ function buildDailySeries(patients: Patient[], totalDays = 21) {
     const date = new Date(start);
     date.setDate(start.getDate() + index);
     return {
-      key: date.toISOString().slice(0, 10),
+      key: formatDateKey(date),
       date,
       admissions: 0,
       discharges: 0,
@@ -119,7 +123,7 @@ function buildDailySeries(patients: Patient[], totalDays = 21) {
     const patientDate = getPatientDate(patient);
     if (!patientDate) return;
 
-    const key = startOfDay(patientDate).toISOString().slice(0, 10);
+    const key = formatDateKey(patientDate);
     const entry = map.get(key);
     if (!entry) return;
 
@@ -309,7 +313,7 @@ export function buildWeeklyPatientFlow(patientHistory: PatientHistoryEntry[], pa
     const date = new Date(start);
     date.setDate(start.getDate() + index);
     return {
-      key: date.toISOString().slice(0, 10),
+      key: formatDateKey(date),
       day: ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"][date.getDay()],
       admissions: 0,
       discharges: 0,
@@ -317,33 +321,42 @@ export function buildWeeklyPatientFlow(patientHistory: PatientHistoryEntry[], pa
   });
 
   const byKey = new Map(series.map((entry) => [entry.key, entry]));
-  let historyInRange = 0;
+  const admissionHistoryPatientIds = new Set<string>();
+  const dischargeHistoryPatientIds = new Set<string>();
 
   patientHistory.forEach((entry) => {
     const eventType = entry.eventType || "admission";
     const dateValue = entry.eventDate || entry.admissionDate;
-    const key = dateValue;
+    const eventDate = parseDate(dateValue);
+    const key = eventDate ? formatDateKey(eventDate) : String(dateValue || "").slice(0, 10);
     const target = byKey.get(key);
     if (!target) return;
 
-    historyInRange += 1;
-
     if (eventType === "discharge") {
       target.discharges += 1;
+      dischargeHistoryPatientIds.add(entry.patientId);
     } else {
       target.admissions += 1;
+      admissionHistoryPatientIds.add(entry.patientId);
     }
   });
 
-  if (historyInRange === 0) {
-    const dailySeries = buildDailySeries(patients, 7);
-    dailySeries.forEach((entry) => {
-      const target = byKey.get(entry.key);
-      if (!target) return;
-      target.admissions = entry.admissions;
-      target.discharges = entry.discharges;
-    });
-  }
+  patients.forEach((patient) => {
+    const patientDate = getPatientDate(patient);
+    if (!patientDate) return;
+
+    const key = formatDateKey(patientDate);
+    const target = byKey.get(key);
+    if (!target) return;
+
+    if (!admissionHistoryPatientIds.has(patient.id)) {
+      target.admissions += 1;
+    }
+
+    if (patient.status === "Discharged" && !dischargeHistoryPatientIds.has(patient.id)) {
+      target.discharges += 1;
+    }
+  });
 
   return series.map(({ day, admissions, discharges }) => ({
     day,
